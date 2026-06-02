@@ -16,10 +16,10 @@
                 <ul class="nav-links">
                     <li><a href="index.html">Home</a></li>
                     <li><a href="listings.html">Listings</a></li>
-                    <li><a href="about.html">About</a></li>
-                    <li><a href="contact.html">Contact</a></li>
-                    <li><a href="payments.html">Payments</a></li>
                     <li><a href="reservations.html" class="active">Reservations</a></li>
+                    <li><a href="payments.html">Payments</a></li>
+                    <li><a href="contact.html">Contact</a></li>
+                    <li><a href="about.html">About</a></li>
                     <li><a href="login.html">Login</a></li>
                     <li><a href="signup.html">Sign Up</a></li>
                 </ul>
@@ -28,6 +28,7 @@
                     <span></span>
                     <span></span>
                 </div>
+                <div class="nav-account" id="nav-account" title="User account"></div>
             </div>
         </div>
     </nav>
@@ -96,6 +97,23 @@
                 <button id="confirm-cancel-refund" type="button" class="btn-cancel">Confirm & Issue 50% Refund</button>
                 <button id="confirm-cancel-no-refund" type="button" class="btn-extend" style="background:#777;color:#fff">Confirm Without Refund</button>
                 <button type="button" onclick="closeCancelModal()" class="btn-secondary">Keep Booking</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Room Service Modal -->
+    <div id="room-service-modal" class="modal" style="display:none">
+        <div class="modal-content">
+            <span class="close" onclick="closeRoomServiceModal()">&times;</span>
+            <h2>Request Room Service</h2>
+            <div id="room-service-categories-container">
+                <!-- Populated by JavaScript -->
+            </div>
+            <div id="room-service-history" style="margin-top:20px;padding-top:20px;border-top:1px solid #333;">
+                <h3>Your Room Service Requests</h3>
+                <div id="room-service-list">
+                    <!-- Populated by JavaScript -->
+                </div>
             </div>
         </div>
     </div>
@@ -236,6 +254,113 @@
             color: #00bfff;
         }
 
+        .btn-room-service {
+            flex: 1;
+            padding: 10px 15px;
+            background: #ff9800;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .btn-room-service:hover {
+            background: #e68900;
+        }
+
+        .btn-room-service:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+
+        .room-service-category {
+            background: #1f1f1f;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #00bfff;
+        }
+
+        .room-service-category h3 {
+            color: #00bfff;
+            margin-bottom: 10px;
+        }
+
+        .room-service-items {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        .room-service-item {
+            background: #121212;
+            padding: 12px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #333;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .room-service-item:hover {
+            border-color: #00bfff;
+            background: #1a1a1a;
+        }
+
+        .room-service-item-info {
+            flex: 1;
+        }
+
+        .room-service-item-name {
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .room-service-item-price {
+            color: #00bfff;
+            font-size: 0.9rem;
+        }
+
+        .room-service-item-btn {
+            background: #00bfff;
+            color: #000;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .room-service-item-btn:hover {
+            background: #0099cc;
+        }
+
+        .room-service-request {
+            background: #121212;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #4CAF50;
+            font-size: 0.9rem;
+        }
+
+        .room-service-request.pending {
+            border-left-color: #ff9800;
+        }
+
+        .room-service-request.completed {
+            border-left-color: #4CAF50;
+        }
+
+        .room-service-request.cancelled {
+            border-left-color: #ff6b6b;
+        }
+
         @media (max-width: 600px) {
             .booking-details {
                 grid-template-columns: 1fr;
@@ -252,6 +377,6 @@
         }
     </style>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=4"></script>
 </body>
 </html>

@@ -2,7 +2,7 @@
   {
     "name": "Admin User",
     "email": "admin@nh.test",
-    "password": "Admin123!",
+    "password": "TempPass123!",
     "role": "admin"
   },
   {
@@ -20,7 +20,7 @@
   {
     "name": "Comp Wiz",
     "email": "compwiz444@gmail.com",
-    "password": "Comp9852",
+    "password": "TempPass123!",
     "role": "user"
   },
   {
@@ -32,7 +32,85 @@
   {
     "name": "Grave filler",
     "email": "gravefiller0@gmail.com",
-    "password": "Banger324",
+    "password": "Barack9852.",
     "role": "user"
+  },
+  {
+    "name": "Test User",
+    "email": "testuser@example.com",
+    "password": "Password123",
+    "role": "user",
+    "verified": false,
+    "otp": "138398",
+    "otpExpires": 1780014792807,
+    "lastOtpSentAt": 1780014192807
+  },
+  {
+    "name": "Test User",
+    "email": "test+local@nh.test",
+    "password": "Temp1234",
+    "role": "user",
+    "verified": false,
+    "otp": "232745",
+    "otpExpires": 1780354916018,
+    "lastOtpSentAt": 1780354316018
+  },
+  {
+    "name": "Narcotics Wiz",
+    "email": "barackjuma911@gmail.com",
+    "password": "Barack9852.",
+    "role": "user",
+    "verified": true,
+    "lastOtpSentAt": 1780436477193
+  },
+  {
+    "name": "Debug User",
+    "email": "otp-debug@example.com",
+    "password": "Test12345!",
+    "role": "user",
+    "verified": false,
+    "otp": "364598",
+    "otpExpires": 1780436954371,
+    "lastOtpSentAt": 1780436354371
+  },
+  {
+    "name": "Debug User2",
+    "email": "otp-debug2@example.com",
+    "password": "Test12345!",
+    "role": "user",
+    "verified": false,
+    "otp": "717953",
+    "otpExpires": 1780436982571,
+    "lastOtpSentAt": 1780436382571
+  },
+  {
+    "name": "Debug User3",
+    "email": "otp-debug3@example.com",
+    "password": "Test12345!",
+    "role": "user",
+    "verified": false,
+    "otp": "780083",
+    "otpExpires": 1780437008775,
+    "lastOtpSentAt": 1780436408775
+  },
+  {
+    "name": "Debug User4",
+    "email": "otp-debug4@example.com",
+    "password": "Test12345!",
+    "role": "user",
+    "verified": false,
+    "otp": "458360",
+    "otpExpires": 1780437133488,
+    "lastOtpSentAt": 1780436533488
+  },
+  {
+    "name": "Spoteafy Premium",
+    "email": "spoteafypremium@gmail.com",
+    "password": "Barack9852.",
+    "role": "user",
+    "verified": false,
+    "otp": "274242",
+    "otpExpires": 1780441307172,
+    "lastOtpSentAt": 1780440707172
   }
 ]

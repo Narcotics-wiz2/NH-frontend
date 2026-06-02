@@ -16,10 +16,10 @@
                 <ul class="nav-links">
                     <li><a href="index.html">Home</a></li>
                     <li><a href="listings.html">Listings</a></li>
-                    <li><a href="about.html">About</a></li>
-                    <li><a href="contact.html">Contact</a></li>
-                    <li><a href="payments.html">Payments</a></li>
                     <li><a href="reservations.html">Reservations</a></li>
+                    <li><a href="payments.html">Payments</a></li>
+                    <li><a href="contact.html">Contact</a></li>
+                    <li><a href="about.html">About</a></li>
                     <li><a href="login.html">Login</a></li>
                     <li><a href="signup.html">Sign Up</a></li>
                 </ul>
@@ -28,6 +28,7 @@
                     <span></span>
                     <span></span>
                 </div>
+                <div class="nav-account" id="nav-account" title="User account"></div>
             </div>
         </div>
     </nav>
@@ -43,8 +44,18 @@
         <div class="container">
             <div class="contact-wrapper">
                 <div class="contact-form-wrapper">
-                    <h2>Change your password</h2>
+                    <h2>Account security</h2>
                     <p id="account-info">Loading account details...</p>
+                    <div class="form-group">
+                        <label>Email verification</label>
+                        <p id="verification-status">Checking verification status...</p>
+                        <button type="button" id="send-verification-btn" class="btn-secondary" style="margin-bottom:12px;">Send verification email</button>
+                        <div id="verification-code-panel" style="display:none; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <input type="text" id="account-verification-otp" placeholder="Enter code" style="width:180px;" />
+                            <button type="button" id="account-verify-btn" class="btn-primary">Verify</button>
+                        </div>
+                        <div id="verification-message" class="form-message" style="margin-top:8px"></div>
+                    </div>
                     <form id="account-form" class="contact-form">
                         <div class="form-group">
                             <label for="current-password">Current Password *</label>
@@ -78,8 +89,6 @@
                 <p>&copy; 2026 Nyodera Heights. All rights reserved.</p>
             </div>
         </div>
-    </footer>
-
-    <script src="script.js"></script>
+    </footer>    <script src="script.js?v=4"></script>
 </body>
 </html>

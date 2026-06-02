@@ -16,6 +16,7 @@ app.use(express.json());
 const USERS_FILE = path.join(__dirname, 'users.json');
 const BOOKINGS_FILE = path.join(__dirname, 'bookings.json');
 const PROPERTIES_FILE = path.join(__dirname, 'properties.json');
+const ROOM_SERVICES_FILE = path.join(__dirname, 'room_services.json');
 
 function readUsersFromFile() {
   try {
@@ -77,6 +78,26 @@ function saveBookingsToFile(bookings) {
   }
 }
 
+function readRoomServicesFromFile() {
+  try {
+    const data = fs.readFileSync(ROOM_SERVICES_FILE, 'utf8');
+    return data ? JSON.parse(data) : [];
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    console.error('Unable to read room services file:', err);
+    return [];
+  }
+}
+
+function saveRoomServicesToFile(services) {
+  try {
+    fs.writeFileSync(ROOM_SERVICES_FILE, JSON.stringify(services, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Unable to save room services file:', err);
+    throw err;
+  }
+}
+
 function ensureDefaultAdminUser() {
   const users = readUsersFromFile();
   if (!users.find(u => u.email === 'admin@nh.test')) {
@@ -117,6 +138,64 @@ const DARAJA_STK_URL = 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/process
 const DARAJA_CALLBACK_URL = 'https://sandbox.safaricom.co.ke/mpesa/c2b/v1/simulate';
 
 async function getMailTransporter() {
+  // Prefer a generic Web API transport if configured. This supports providers
+  // that expose an HTTP send endpoint and accept a Bearer API key.
+  // Unione provider-specific adapter (if chosen)
+  if (process.env.EMAIL_PROVIDER === 'unione' && process.env.EMAIL_API_KEY) {
+    const unioneUrl = process.env.EMAIL_API_URL || 'https://api.unione.example/v1/messages';
+    return {
+      transporter: {
+        sendMail: async (mailOptions) => {
+          const payload = {
+            sender: mailOptions.from,
+            recipients: mailOptions.to,
+            subject: mailOptions.subject,
+            content: [
+              { type: 'text/plain', value: mailOptions.text },
+              { type: 'text/html', value: mailOptions.html }
+            ]
+          };
+          const resp = await axios.post(unioneUrl, payload, {
+            headers: {
+              Authorization: `Bearer ${process.env.EMAIL_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000,
+          });
+          return { apiResponse: resp.data, messageId: resp.data?.id || resp.headers['x-message-id'] };
+        }
+      },
+      mode: 'unione',
+    };
+  }
+
+  if (process.env.EMAIL_API_URL && process.env.EMAIL_API_KEY) {
+    return {
+      transporter: {
+        // Provide a compatible sendMail interface so existing code can call
+        // transporter.sendMail({ from, to, subject, text, html }) as before.
+        sendMail: async (mailOptions) => {
+          const payload = {
+            from: mailOptions.from,
+            to: mailOptions.to,
+            subject: mailOptions.subject,
+            text: mailOptions.text,
+            html: mailOptions.html,
+          };
+          const resp = await axios.post(process.env.EMAIL_API_URL, payload, {
+            headers: {
+              Authorization: `Bearer ${process.env.EMAIL_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 10000,
+          });
+          return { apiResponse: resp.data, messageId: resp.data?.id || resp.headers['x-message-id'] };
+        }
+      },
+      mode: 'api',
+    };
+  }
+
   const smtpConfigured = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
   if (smtpConfigured) {
     return {
@@ -124,6 +203,7 @@ async function getMailTransporter() {
         host: process.env.SMTP_HOST,
         port: parseInt(process.env.SMTP_PORT || '587', 10),
         secure: process.env.SMTP_SECURE === 'true',
+        requireTLS: true,
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,
@@ -152,43 +232,181 @@ async function getMailTransporter() {
   };
 }
 
-async function sendResetEmail({ email, name, tempPassword }) {
+async function sendMailWithLogging(mailOptions, label = 'email') {
   const { transporter, mode } = await getMailTransporter();
-  const from = process.env.EMAIL_FROM || 'no-reply@nyoderaheights.com';
+  const from = mailOptions.from || process.env.EMAIL_FROM || 'no-reply@nyoderaheights.com';
+  const envelopeFrom = process.env.EMAIL_ENVELOPE_FROM || from;
+  const options = Object.assign({
+    from,
+    envelope: Object.assign({ from: envelopeFrom, to: mailOptions.to }, mailOptions.envelope || {})
+  }, mailOptions);
+
+  const info = await transporter.sendMail(options);
+  console.log(`[Mail] Sent ${label} to ${mailOptions.to} via ${mode} | response=${info.response}`);
+  const previewUrl = nodemailer.getTestMessageUrl(info);
+  if (previewUrl) console.log(`[Mail] Preview URL: ${previewUrl}`);
+  return { info, mode, previewUrl };
+}
+
+async function sendResetEmail({ email, name, tempPassword }) {
   const subject = process.env.EMAIL_SUBJECT || 'Nyodera Heights Password Reset';
   const text = `Hello ${name || 'Nyodera Heights user'},\n\n` +
     `Your temporary password is: ${tempPassword}\n\n` +
     'Use this password to log in and update your password immediately.\n\n' +
     'If you did not request this reset, please ignore this message.';
-  const html = `<p>Hello ${name || 'Nyodera Heights user'},</p>
-<p>Your temporary password is: <strong>${tempPassword}</strong></p>
-<p>Use this password to log in and update your password immediately.</p>
-<p>If you did not request this reset, please ignore this email.</p>`;
+  const html = `<p>Hello ${name || 'Nyodera Heights user'},</p>` +
+    `<p>Your temporary password is: <strong>${tempPassword}</strong></p>` +
+    `<p>Use this password to log in and update your password immediately.</p>` +
+    `<p>If you did not request this reset, please ignore this email.</p>`;
 
-  const info = await transporter.sendMail({
-    from,
+  const { info, mode, previewUrl } = await sendMailWithLogging({
     to: email,
     subject,
     text,
-    html,
-  });
+    html
+  }, 'password reset');
 
-  const previewUrl = nodemailer.getTestMessageUrl(info);
-  if (previewUrl) console.log('Password reset email preview URL:', previewUrl);
-  return { previewUrl, mode };
+  return { previewUrl, mode, info };
 }
 
 async function sendOtpEmail({ email, name, otp }) {
-  const { transporter, mode } = await getMailTransporter();
-  const from = process.env.EMAIL_FROM || 'no-reply@nyoderaheights.com';
   const subject = process.env.EMAIL_SUBJECT_OTP || 'Nyodera Heights Email Verification';
   const text = `Hello ${name || ''},\n\nYour verification code is: ${otp}\n\nEnter this code in the Nyodera Heights sign-up page to verify your email. The code expires in 10 minutes.`;
   const html = `<p>Hello ${name || ''},</p><p>Your verification code is: <strong>${otp}</strong></p><p>The code expires in 10 minutes.</p>`;
 
-  const info = await transporter.sendMail({ from, to: email, subject, text, html });
-  const previewUrl = nodemailer.getTestMessageUrl(info);
-  if (previewUrl) console.log('OTP email preview URL:', previewUrl);
-  return { previewUrl, mode };
+  const { info, mode, previewUrl } = await sendMailWithLogging({
+    to: email,
+    subject,
+    text,
+    html
+  }, 'otp verification');
+
+  return { previewUrl, mode, info };
+}
+
+async function sendBookingConfirmationEmail({ email, name, booking }) {
+  try {
+    console.log(`[Booking Email] Sending confirmation to ${email} for booking ${booking.id}`);
+    const subject = 'Booking Confirmation - Nyodera Heights';
+    
+    const checkInDate = new Date(booking.checkInDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    const checkOutDate = new Date(booking.checkOutDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    
+    const text = `Hello ${name || 'Guest'},\n\nYour booking at Nyodera Heights has been confirmed!\n\nBooking Details:\n` +
+      `- Booking ID: ${booking.id}\n` +
+      `- Property: ${booking.propertyName || booking.property || 'Property'}\n` +
+      `- Check-in: ${checkInDate}\n` +
+      `- Check-out: ${checkOutDate}\n` +
+      `- Total Amount: $${booking.paymentAmount || '0'}\n` +
+      `- Status: ${booking.status}\n\n` +
+      `Thank you for choosing Nyodera Heights!\n\nIf you have any questions, please contact us.`;
+    
+    const html = `<p>Hello ${name || 'Guest'},</p>` +
+      `<p>Your booking at Nyodera Heights has been confirmed!</p>` +
+      `<h3>Booking Details:</h3>` +
+      `<ul>` +
+      `<li><strong>Booking ID:</strong> ${booking.id}</li>` +
+      `<li><strong>Property:</strong> ${booking.propertyName || booking.property || 'Property'}</li>` +
+      `<li><strong>Check-in:</strong> ${checkInDate}</li>` +
+      `<li><strong>Check-out:</strong> ${checkOutDate}</li>` +
+      `<li><strong>Total Amount:</strong> $${booking.paymentAmount || '0'}</li>` +
+      `<li><strong>Status:</strong> ${booking.status}</li>` +
+      `</ul>` +
+      `<p>Thank you for choosing Nyodera Heights!</p>` +
+      `<p>If you have any questions, please contact us.</p>`;
+
+    const { info, mode, previewUrl } = await sendMailWithLogging({
+      to: email,
+      subject,
+      text,
+      html
+    }, 'booking confirmation');
+
+    return { previewUrl, mode, info };
+  } catch (err) {
+    console.error('[Booking Email] ✗ Error:', err.message);
+    return { error: err.message, mode: 'failed' };
+  }
+}
+
+async function sendBookingExtensionEmail({ email, name, booking }) {
+  try {
+    console.log(`[Booking Email] Sending extension notice to ${email} for booking ${booking.id}`);
+    const subject = 'Your stay has been extended - Nyodera Heights';
+
+    const newCheckOutDate = new Date(booking.checkOut).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    const extensionNights = booking.extensionNights || 0;
+    const extensionAmount = booking.extensionPaidAmount || 0;
+
+    const text = `Hello ${name || 'Guest'},\n\nYour stay at Nyodera Heights has been successfully extended.\n\nExtension Details:\n` +
+      `- Booking ID: ${booking.id}\n` +
+      `- Property: ${booking.propertyName || booking.property || 'Property'}\n` +
+      `- New check-out date: ${newCheckOutDate}\n` +
+      `- Additional nights: ${extensionNights}\n` +
+      `- Additional amount: $${extensionAmount}\n\n` +
+      `Thank you for staying with us. If you have any questions, please contact us.`;
+
+    const html = `<p>Hello ${name || 'Guest'},</p>` +
+      `<p>Your stay at Nyodera Heights has been successfully extended.</p>` +
+      `<h3>Extension Details:</h3>` +
+      `<ul>` +
+      `<li><strong>Booking ID:</strong> ${booking.id}</li>` +
+      `<li><strong>Property:</strong> ${booking.propertyName || booking.property || 'Property'}</li>` +
+      `<li><strong>New check-out date:</strong> ${newCheckOutDate}</li>` +
+      `<li><strong>Additional nights:</strong> ${extensionNights}</li>` +
+      `<li><strong>Additional amount:</strong> $${extensionAmount}</li>` +
+      `</ul>` +
+      `<p>Thank you for staying with us. If you have any questions, please contact us.</p>`;
+
+    const { info, mode, previewUrl } = await sendMailWithLogging({
+      to: email,
+      subject,
+      text,
+      html
+    }, 'booking extension');
+
+    return { previewUrl, mode, info };
+  } catch (err) {
+    console.error('[Booking Email] ✗ Extension email error:', err.message);
+    return { error: err.message, mode: 'failed' };
+  }
+}
+
+async function sendBookingCancellationRequestEmail({ email, name, booking }) {
+  try {
+    console.log(`[Booking Email] Sending cancellation request notice to ${email} for booking ${booking.id}`);
+    const subject = 'Cancellation request received - Nyodera Heights';
+
+    const text = `Hello ${name || 'Guest'},\n\nWe have received your cancellation request for booking ${booking.id} at Nyodera Heights. Our team will review the request and notify you once the cancellation is approved or denied.\n\nCurrent booking status: ${booking.status}\n\nThank you for your patience.`;
+
+    const html = `<p>Hello ${name || 'Guest'},</p>` +
+      `<p>We have received your cancellation request for booking <strong>${booking.id}</strong> at Nyodera Heights.</p>` +
+      `<p>Your request is now being reviewed. We will notify you once the cancellation is approved or denied.</p>` +
+      `<p><strong>Current booking status:</strong> ${booking.status}</p>` +
+      `<p>Thank you for your patience.</p>`;
+
+    const { info, mode, previewUrl } = await sendMailWithLogging({
+      to: email,
+      subject,
+      text,
+      html
+    }, 'cancellation request');
+
+    return { previewUrl, mode, info };
+  } catch (err) {
+    console.error('[Booking Email] ✗ Cancellation request email error:', err.message);
+    return { error: err.message, mode: 'failed' };
+  }
+}
+
+function sendEmailInBackground(sendFn) {
+  Promise.resolve().then(async () => {
+    try {
+      await sendFn();
+    } catch (err) {
+      console.error('Background email send failed:', err);
+    }
+  });
 }
 
 let mpesaAccessToken = null;
@@ -334,7 +552,7 @@ app.get('/api/bookings', (req, res) => {
   res.json(bookings || []);
 });
 
-app.post('/api/bookings', (req, res) => {
+app.post('/api/bookings', async (req, res) => {
   try {
     const booking = req.body;
     if (!booking || !booking.id || !booking.userEmail) {
@@ -342,6 +560,8 @@ app.post('/api/bookings', (req, res) => {
     }
 
     const bookings = readBookingsFromFile();
+    const isNewBooking = !bookings.find(b => String(b.id) === String(booking.id));
+    
     const existing = bookings.find(b => String(b.id) === String(booking.id));
     if (existing) {
       Object.assign(existing, booking);
@@ -350,6 +570,33 @@ app.post('/api/bookings', (req, res) => {
     }
 
     saveBookingsToFile(bookings);
+    console.log('Booking saved:', booking.id, 'userEmail:', booking.userEmail, 'isNewBooking:', isNewBooking);
+
+    // Send booking confirmation email for new bookings
+    if (isNewBooking) {
+      const users = readUsersFromFile();
+      const user = users.find(u => u.email === booking.userEmail);
+      const userName = user?.name || booking.userName || 'Guest';
+      const emailResult = await sendBookingConfirmationEmail({
+        email: booking.userEmail,
+        name: userName,
+        booking
+      });
+      console.log('Booking confirmation email result:', emailResult);
+    } else {
+      const previousExtensionAmount = existing.extensionPaidAmount || 0;
+      if (booking.extensionPaidAmount && booking.extensionPaidAmount !== previousExtensionAmount) {
+        const users = readUsersFromFile();
+        const user = users.find(u => u.email === booking.userEmail);
+        const userName = user?.name || booking.userName || 'Guest';
+        await sendBookingExtensionEmail({
+          email: booking.userEmail,
+          name: userName,
+          booking
+        });
+      }
+    }
+
     res.json({ success: true, booking });
   } catch (err) {
     console.error('create booking error', err);
@@ -358,7 +605,7 @@ app.post('/api/bookings', (req, res) => {
 });
 
 // Request cancellation (creates a pending cancellation)
-app.post('/api/bookings/cancel-request', (req, res) => {
+app.post('/api/bookings/cancel-request', async (req, res) => {
   try {
     const { bookingId, refundRequested, requestedBy } = req.body || {};
     if (!bookingId) return res.status(400).json({ error: 'Missing bookingId' });
@@ -377,6 +624,21 @@ app.post('/api/bookings/cancel-request', (req, res) => {
     }
 
     saveBookingsToFile(bookings);
+    console.log('Cancellation requested:', booking.id, 'userEmail:', booking.userEmail, 'status:', booking.status);
+
+    if (booking.userEmail) {
+      const users = readUsersFromFile();
+      const user = users.find(u => u.email === booking.userEmail);
+      sendEmailInBackground(async () => {
+        const emailResult = await sendBookingCancellationRequestEmail({
+          email: booking.userEmail,
+          name: user?.name || booking.userName || 'Guest',
+          booking
+        });
+        console.log('Cancellation request email result:', emailResult);
+      });
+    }
+
     res.json({ success: true, booking });
   } catch (err) {
     console.error('cancel-request error', err);
@@ -404,7 +666,7 @@ app.post('/api/bookings/:id/approve-cancellation', async (req, res) => {
           amount: refundAmount,
           currency: booking.paymentCurrency || 'USD',
           captureId: booking.paymentCaptureId || undefined
-        });
+        }, { timeout: 8000 });
         refundResult = refundResp.data;
         booking.refund = { amount: refundAmount, date: new Date().toISOString(), id: refundResult.refund?.id || `REF_${Date.now()}` };
       } catch (refundErr) {
@@ -418,20 +680,17 @@ app.post('/api/bookings/:id/approve-cancellation', async (req, res) => {
     booking.status = 'cancelled';
     saveBookingsToFile(bookings);
 
-    // send notification email if email exists
     if (booking.userEmail) {
-      try {
-        const { transporter } = await getMailTransporter();
-        const info = await transporter.sendMail({
-          from: process.env.EMAIL_FROM || 'no-reply@nyoderaheights.com',
+      const users = readUsersFromFile();
+      const user = users.find(u => u.email === booking.userEmail);
+      sendEmailInBackground(async () => {
+        const emailResult = await sendMailWithLogging({
           to: booking.userEmail,
           subject: 'Your cancellation request was approved',
-          text: `Hello ${booking.userName || ''},\n\nYour cancellation for booking ${booking.id} was approved. A refund of ${booking.refund?.amount || 'N/A'} will be processed shortly.\n\nRegards, Nyodera Heights`,
-        });
-        if (nodemailer.getTestMessageUrl(info)) console.log('Cancellation approval email preview:', nodemailer.getTestMessageUrl(info));
-      } catch (emailErr) {
-        console.error('Failed to send approval email', emailErr);
-      }
+          text: `Hello ${booking.userName || ''},\n\nYour cancellation for booking ${booking.id} was approved. A refund of ${booking.refund?.amount || 'N/A'} will be processed shortly.\n\nRegards, Nyodera Heights`
+        }, 'cancellation approval');
+        console.log('Cancellation approval email result:', emailResult);
+      });
     }
 
     res.json({ success: true, booking, refundResult });
@@ -455,20 +714,14 @@ app.post('/api/bookings/:id/deny-cancellation', (req, res) => {
     saveBookingsToFile(bookings);
 
     if (booking.userEmail) {
-      (async () => {
-        try {
-          const { transporter } = await getMailTransporter();
-          const info = await transporter.sendMail({
-            from: process.env.EMAIL_FROM || 'no-reply@nyoderaheights.com',
-            to: booking.userEmail,
-            subject: 'Your cancellation request was denied',
-            text: `Hello ${booking.userName || ''},\n\nYour cancellation request for booking ${booking.id} was denied by admin. Your booking remains confirmed.\n\nRegards, Nyodera Heights`,
-          });
-          if (nodemailer.getTestMessageUrl(info)) console.log('Cancellation denial email preview:', nodemailer.getTestMessageUrl(info));
-        } catch (emailErr) {
-          console.error('Failed to send denial email', emailErr);
-        }
-      })();
+      sendEmailInBackground(async () => {
+        const emailResult = await sendMailWithLogging({
+          to: booking.userEmail,
+          subject: 'Your cancellation request was denied',
+          text: `Hello ${booking.userName || ''},\n\nYour cancellation request for booking ${booking.id} was denied by admin. Your booking remains confirmed.\n\nRegards, Nyodera Heights`
+        }, 'cancellation denial');
+        console.log('Cancellation denial email result:', emailResult);
+      });
     }
 
     res.json({ success: true, booking });
@@ -478,7 +731,236 @@ app.post('/api/bookings/:id/deny-cancellation', (req, res) => {
   }
 });
 
-app.post('/api/auth/signup', (req, res) => {
+// ============== ROOM SERVICES ENDPOINTS ==============
+
+// Get room service categories
+app.get('/api/room-service-categories', (req, res) => {
+  const categories = [
+    {
+      id: 'food_beverage',
+      name: 'Food & Beverage',
+      items: [
+        { id: 'breakfast', name: 'Breakfast', price: 15 },
+        { id: 'lunch', name: 'Lunch', price: 25 },
+        { id: 'dinner', name: 'Dinner', price: 35 },
+        { id: 'snacks', name: 'Snacks & Drinks', price: 10 }
+      ]
+    },
+    {
+      id: 'cleaning',
+      name: 'Cleaning Services',
+      items: [
+        { id: 'room_cleaning', name: 'Room Cleaning', price: 30 },
+        { id: 'laundry', name: 'Laundry Service', price: 20 },
+        { id: 'urgent_cleaning', name: 'Urgent Cleaning (Same Day)', price: 50 }
+      ]
+    },
+    {
+      id: 'concierge',
+      name: 'Concierge Services',
+      items: [
+        { id: 'airport_transfer', name: 'Airport Transfer', price: 40 },
+        { id: 'restaurant_booking', name: 'Restaurant Booking', price: 0 },
+        { id: 'tour_booking', name: 'Tour Booking Assistance', price: 0 },
+        { id: 'grocery', name: 'Grocery Shopping', price: 15 }
+      ]
+    },
+    {
+      id: 'maintenance',
+      name: 'Maintenance & Support',
+      items: [
+        { id: 'maintenance_issue', name: 'Report Maintenance Issue', price: 0 },
+        { id: 'wifi_support', name: 'WiFi Support', price: 0 },
+        { id: 'keys', name: 'Emergency Keys', price: 25 }
+      ]
+    }
+  ];
+  res.json(categories);
+});
+
+// Request room service
+app.post('/api/room-service/request', (req, res) => {
+  try {
+    const { bookingId, userEmail, category, service, quantity = 1, specialRequests = '' } = req.body;
+    
+    if (!bookingId || !userEmail || !category || !service) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Verify booking exists and is confirmed
+    const bookings = readBookingsFromFile();
+    const booking = bookings.find(b => String(b.id) === String(bookingId) && b.userEmail === userEmail);
+    
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    if (booking.status !== 'confirmed') {
+      return res.status(400).json({ error: 'Room service only available for confirmed bookings' });
+    }
+
+    // Find the service price
+    const categories = [
+      {
+        id: 'food_beverage',
+        items: [
+          { id: 'breakfast', price: 15 },
+          { id: 'lunch', price: 25 },
+          { id: 'dinner', price: 35 },
+          { id: 'snacks', price: 10 }
+        ]
+      },
+      {
+        id: 'cleaning',
+        items: [
+          { id: 'room_cleaning', price: 30 },
+          { id: 'laundry', price: 20 },
+          { id: 'urgent_cleaning', price: 50 }
+        ]
+      },
+      {
+        id: 'concierge',
+        items: [
+          { id: 'airport_transfer', price: 40 },
+          { id: 'restaurant_booking', price: 0 },
+          { id: 'tour_booking', price: 0 },
+          { id: 'grocery', price: 15 }
+        ]
+      },
+      {
+        id: 'maintenance',
+        items: [
+          { id: 'maintenance_issue', price: 0 },
+          { id: 'wifi_support', price: 0 },
+          { id: 'keys', price: 25 }
+        ]
+      }
+    ];
+
+    let price = 0;
+    for (const cat of categories) {
+      if (cat.id === category) {
+        const item = cat.items.find(i => i.id === service);
+        if (item) price = item.price;
+        break;
+      }
+    }
+
+    const roomService = {
+      id: 'RS_' + Date.now(),
+      bookingId,
+      userEmail,
+      category,
+      service,
+      quantity,
+      price: price * quantity,
+      specialRequests,
+      status: 'pending',
+      requestedAt: new Date().toISOString(),
+      completedAt: null
+    };
+
+    const services = readRoomServicesFromFile();
+    services.push(roomService);
+    saveRoomServicesToFile(services);
+
+    res.json({ success: true, roomService });
+  } catch (err) {
+    console.error('room-service request error', err);
+    res.status(500).json({ error: 'Unable to request room service' });
+  }
+});
+
+// Get room services for a booking
+app.get('/api/room-service/booking/:bookingId', (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const userEmail = req.query.userEmail;
+
+    if (!bookingId || !userEmail) {
+      return res.status(400).json({ error: 'Missing bookingId or userEmail' });
+    }
+
+    // Verify booking exists
+    const bookings = readBookingsFromFile();
+    const booking = bookings.find(b => String(b.id) === String(bookingId) && b.userEmail === userEmail);
+    
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    const services = readRoomServicesFromFile();
+    const bookingServices = services.filter(s => s.bookingId === bookingId);
+
+    res.json(bookingServices);
+  } catch (err) {
+    console.error('room-service get error', err);
+    res.status(500).json({ error: 'Unable to get room services' });
+  }
+});
+
+// Update room service status (admin only)
+app.patch('/api/room-service/:id/status', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!['pending', 'in_progress', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const services = readRoomServicesFromFile();
+    const service = services.find(s => s.id === id);
+
+    if (!service) {
+      return res.status(404).json({ error: 'Room service not found' });
+    }
+
+    service.status = status;
+    if (status === 'completed') {
+      service.completedAt = new Date().toISOString();
+    }
+
+    saveRoomServicesToFile(services);
+    res.json({ success: true, roomService: service });
+  } catch (err) {
+    console.error('room-service status update error', err);
+    res.status(500).json({ error: 'Unable to update room service status' });
+  }
+});
+
+// Cancel room service request
+app.post('/api/room-service/:id/cancel', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userEmail } = req.body;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: 'Missing userEmail' });
+    }
+
+    const services = readRoomServicesFromFile();
+    const service = services.find(s => s.id === id && s.userEmail === userEmail);
+
+    if (!service) {
+      return res.status(404).json({ error: 'Room service not found' });
+    }
+
+    if (service.status === 'completed') {
+      return res.status(400).json({ error: 'Cannot cancel completed service' });
+    }
+
+    service.status = 'cancelled';
+    saveRoomServicesToFile(services);
+
+    res.json({ success: true, roomService: service });
+  } catch (err) {
+    console.error('room-service cancel error', err);
+    res.status(500).json({ error: 'Unable to cancel room service' });
+  }
+});
+
+app.post('/api/auth/signup', async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Missing name, email, or password' });
@@ -486,28 +968,16 @@ app.post('/api/auth/signup', (req, res) => {
 
   const normalizedEmail = email.trim().toLowerCase();
   const users = readUsersFromFile();
-  if (users.find(u => u.email === normalizedEmail)) {
+  const existingUser = users.find(u => u.email === normalizedEmail);
+  if (existingUser) {
     return res.status(409).json({ error: 'Email already registered' });
   }
 
-  // create user with verification required (store OTP)
-  const otp = ('' + Math.floor(100000 + Math.random() * 900000));
-  const otpExpires = Date.now() + (10 * 60 * 1000); // 10 minutes
-  const lastOtpSentAt = Date.now();
-  const user = { name: name.trim(), email: normalizedEmail, password, role: 'user', verified: false, otp, otpExpires, lastOtpSentAt };
+  const user = { name: name.trim(), email: normalizedEmail, password, role: 'user', verified: false };
   users.push(user);
   saveUsersToFile(users);
 
-  // attempt to send OTP email (best-effort)
-  (async () => {
-    try {
-      await sendOtpEmail({ email: user.email, name: user.name, otp });
-    } catch (err) {
-      console.error('Failed to send signup OTP email', err);
-    }
-  })();
-
-  res.json({ email: user.email, name: user.name, role: user.role, needsVerification: true });
+  res.json({ email: user.email, name: user.name, role: user.role, verified: false });
 });
 
 // Verify OTP
@@ -537,7 +1007,7 @@ app.post('/api/auth/verify-otp', (req, res) => {
 });
 
 // Resend OTP
-app.post('/api/auth/resend-otp', (req, res) => {
+app.post('/api/auth/resend-otp', async (req, res) => {
   try {
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: 'Missing email' });
@@ -560,18 +1030,56 @@ app.post('/api/auth/resend-otp', (req, res) => {
     user.lastOtpSentAt = now;
     saveUsersToFile(users);
 
-    (async () => {
-      try {
-        await sendOtpEmail({ email: user.email, name: user.name, otp });
-      } catch (err) {
-        console.error('Failed to send resend OTP email', err);
-      }
-    })();
+    let emailSend = { mode: 'unknown' };
+    try {
+      emailSend = await sendOtpEmail({ email: user.email, name: user.name, otp });
+    } catch (err) {
+      console.error('Failed to send resend OTP email', err);
+      emailSend = { error: err.message || 'Unknown send error' };
+    }
 
-    res.json({ success: true, message: 'OTP resent' });
+    res.json({ success: true, message: 'OTP resent', emailSend });
   } catch (err) {
     console.error('resend-otp error', err);
     res.status(500).json({ error: 'Unable to resend OTP' });
+  }
+});
+
+app.post('/api/auth/send-verification', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Missing email' });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const users = readUsersFromFile();
+    const user = users.find(u => u.email === normalizedEmail);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.verified) return res.status(400).json({ error: 'User already verified' });
+
+    const now = Date.now();
+    const cooldown = 60 * 1000;
+    if (user.lastOtpSentAt && (now - Number(user.lastOtpSentAt) < cooldown)) {
+      const wait = Math.ceil((cooldown - (now - Number(user.lastOtpSentAt))) / 1000);
+      return res.status(429).json({ error: 'Too many requests', waitSeconds: wait });
+    }
+
+    const otp = ('' + Math.floor(100000 + Math.random() * 900000));
+    user.otp = otp;
+    user.otpExpires = now + (10 * 60 * 1000);
+    user.lastOtpSentAt = now;
+    saveUsersToFile(users);
+
+    let emailSend = { mode: 'unknown' };
+    try {
+      emailSend = await sendOtpEmail({ email: user.email, name: user.name, otp });
+    } catch (err) {
+      console.error('Failed to send verification OTP email', err);
+      emailSend = { error: err.message || 'Unknown send error' };
+    }
+
+    res.json({ success: true, message: 'Verification email sent', emailSend });
+  } catch (err) {
+    console.error('send-verification error', err);
+    res.status(500).json({ error: 'Unable to send verification email' });
   }
 });
 
@@ -588,12 +1096,18 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  // Prevent login for users who were created but not yet verified (explicit false)
-  if (user.verified === false) {
-    return res.status(401).json({ error: 'Email not verified', needsVerification: true });
-  }
+  res.json({ email: user.email, name: user.name, role: user.role, verified: user.verified !== false });
+});
 
-  res.json({ email: user.email, name: user.name, role: user.role });
+app.get('/api/auth/me', (req, res) => {
+  const email = String(req.query.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'Missing email' });
+
+  const users = readUsersFromFile();
+  const user = users.find(u => u.email === email);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  res.json({ email: user.email, name: user.name, role: user.role, verified: user.verified !== false });
 });
 
 app.patch('/api/auth/password', (req, res) => {

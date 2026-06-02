@@ -9,7 +9,7 @@
     "nights": 7,
     "amount": 583.33,
     "createdDate": "2026-05-22T02:31:03.189Z",
-    "status": "cancellation_pending",
+    "status": "cancelled",
     "paymentId": "DEMO_1779417076235",
     "paymentAmount": 583.33,
     "paymentCurrency": "KES",
@@ -21,7 +21,14 @@
       "requestedAt": "2026-05-22T14:14:59.955Z",
       "requestedBy": "test2@example.com",
       "refundRequested": true,
-      "refundAmount": 291.67
+      "refundAmount": 291.67,
+      "status": "approved"
+    },
+    "refund": {
+      "amount": 291.67,
+      "date": "2026-06-02T22:57:11.042Z",
+      "id": "REF_1780441031042",
+      "fallback": true
     }
   },
   {
@@ -34,14 +41,27 @@
     "nights": 5,
     "amount": 416.67,
     "createdDate": "2026-05-22T14:16:30.073Z",
-    "status": "confirmed",
+    "status": "cancelled",
     "paymentId": "DEMO_1779459420379",
     "paymentAmount": 416.67,
     "paymentCurrency": "KES",
     "paymentProvider": "M-Pesa",
     "paymentCaptureId": null,
     "paidAmount": 416.67,
-    "confirmedDate": "2026-05-22T14:17:00.332Z"
+    "confirmedDate": "2026-05-22T14:17:00.332Z",
+    "cancellation": {
+      "requestedAt": "2026-06-02T21:46:10.497Z",
+      "requestedBy": "jumabarack17@gmail.com",
+      "refundRequested": true,
+      "refundAmount": 208.34,
+      "status": "approved"
+    },
+    "refund": {
+      "amount": 208.34,
+      "date": "2026-06-02T23:01:40.655Z",
+      "id": "REF_1780441300655",
+      "fallback": true
+    }
   },
   {
     "id": "PENDING_1779459509478",
@@ -53,14 +73,27 @@
     "nights": 8,
     "amount": 666.67,
     "createdDate": "2026-05-22T14:18:29.478Z",
-    "status": "confirmed",
+    "status": "cancelled",
     "paymentId": 1779459520724,
     "paymentAmount": 666.67,
     "paymentCurrency": "USD",
     "paymentProvider": "Card",
     "paymentCaptureId": null,
     "paidAmount": 666.67,
-    "confirmedDate": "2026-05-22T14:18:40.731Z"
+    "confirmedDate": "2026-05-22T14:18:40.731Z",
+    "cancellation": {
+      "requestedAt": "2026-06-02T23:04:43.060Z",
+      "requestedBy": "jumabarack17@gmail.com",
+      "refundRequested": true,
+      "refundAmount": 333.33,
+      "status": "approved"
+    },
+    "refund": {
+      "amount": 333.33,
+      "date": "2026-06-02T23:05:33.490Z",
+      "id": "REF_1780441533490",
+      "fallback": true
+    }
   },
   {
     "id": "PENDING_1779461321963",
@@ -72,13 +105,251 @@
     "nights": 7,
     "amount": 583.33,
     "createdDate": "2026-05-22T14:48:41.963Z",
-    "status": "confirmed",
+    "status": "cancelled",
     "paymentId": "DEMO_1779461341270",
     "paymentAmount": 87500,
     "paymentCurrency": "KES",
     "paymentProvider": "M-Pesa",
     "paymentCaptureId": null,
     "paidAmount": 87500,
-    "confirmedDate": "2026-05-22T14:49:01.298Z"
+    "confirmedDate": "2026-05-22T14:49:01.298Z",
+    "cancellation": {
+      "requestedAt": "2026-06-02T21:46:16.073Z",
+      "requestedBy": "jumabarack17@gmail.com",
+      "refundRequested": true,
+      "refundAmount": 43750,
+      "status": "approved"
+    },
+    "refund": {
+      "amount": 43750,
+      "date": "2026-06-02T23:02:13.717Z",
+      "id": "REF_1780441333717",
+      "fallback": true
+    }
+  },
+  {
+    "id": "BOOKING_TEST_1780399520634204044",
+    "userEmail": "compwiz444@gmail.com",
+    "userName": "Comp Wiz",
+    "propertyName": "Luxury Suite",
+    "checkInDate": "2026-06-10",
+    "checkOutDate": "2026-06-15",
+    "paymentAmount": 500,
+    "status": "confirmed",
+    "paymentMethod": "stripe"
+  },
+  {
+    "id": "PENDING_1780399583295",
+    "userEmail": "gravefiller0@gmail.com",
+    "property": "Luxury Studio Apartment",
+    "checkIn": "2026-06-05",
+    "checkOut": "2026-06-10",
+    "guests": "2",
+    "nights": 5,
+    "amount": 416.67,
+    "createdDate": "2026-06-02T11:26:23.296Z",
+    "status": "confirmed",
+    "paymentId": "DEMO_1780399602130",
+    "paymentAmount": 62501,
+    "paymentCurrency": "KES",
+    "paymentProvider": "M-Pesa",
+    "paymentCaptureId": null,
+    "paidAmount": 62501,
+    "confirmedDate": "2026-06-02T11:26:41.706Z"
+  },
+  {
+    "id": "PENDING_1780399785536",
+    "userEmail": "gravefiller0@gmail.com",
+    "property": "Elegant One Bedroom",
+    "checkIn": "2026-06-03",
+    "checkOut": "2026-06-07",
+    "guests": "2",
+    "nights": 4,
+    "amount": 333.33,
+    "createdDate": "2026-06-02T11:29:45.536Z",
+    "status": "confirmed",
+    "paymentId": "DEMO_1780399794774",
+    "paymentAmount": 50000,
+    "paymentCurrency": "KES",
+    "paymentProvider": "M-Pesa",
+    "paymentCaptureId": null,
+    "paidAmount": 50000,
+    "confirmedDate": "2026-06-02T11:29:54.351Z"
+  },
+  {
+    "id": "BOOKING_TEST_1780399811542494229",
+    "userEmail": "compwiz444@gmail.com",
+    "userName": "Comp Wiz",
+    "propertyName": "Deluxe Room",
+    "checkInDate": "2026-06-12",
+    "checkOutDate": "2026-06-16",
+    "paymentAmount": 750,
+    "status": "confirmed",
+    "paymentMethod": "stripe"
+  },
+  {
+    "id": "PENDING_1780399905658",
+    "userEmail": "gravefiller0@gmail.com",
+    "property": "Elegant One Bedroom",
+    "checkIn": "2026-06-03",
+    "checkOut": "2026-06-06",
+    "guests": "2",
+    "nights": 3,
+    "amount": 250,
+    "createdDate": "2026-06-02T11:31:45.658Z",
+    "status": "confirmed",
+    "paymentId": "DEMO_1780399916421",
+    "paymentAmount": 37500,
+    "paymentCurrency": "KES",
+    "paymentProvider": "M-Pesa",
+    "paymentCaptureId": null,
+    "paidAmount": 37500,
+    "confirmedDate": "2026-06-02T11:31:55.996Z"
+  },
+  {
+    "id": "BOOKING_DEBUG_1780399937036389227",
+    "userEmail": "compwiz444@gmail.com",
+    "userName": "Comp Wiz",
+    "propertyName": "Premium Suite",
+    "checkInDate": "2026-06-13",
+    "checkOutDate": "2026-06-17",
+    "paymentAmount": 1200,
+    "status": "confirmed",
+    "paymentMethod": "paypal"
+  },
+  {
+    "id": "PENDING_1780441795434",
+    "userEmail": "jumabarack17@gmail.com",
+    "property": "Elegant One Bedroom",
+    "checkIn": "2026-06-04",
+    "checkOut": "2026-06-09",
+    "guests": "2",
+    "nights": 5,
+    "amount": 416.67,
+    "createdDate": "2026-06-02T23:09:55.434Z",
+    "status": "cancelled",
+    "paymentId": "DEMO_1780441807959",
+    "paymentAmount": 62501,
+    "paymentCurrency": "KES",
+    "paymentProvider": "M-Pesa",
+    "paymentCaptureId": null,
+    "paidAmount": 62501,
+    "confirmedDate": "2026-06-02T23:10:07.451Z",
+    "cancellation": {
+      "requestedAt": "2026-06-02T23:12:09.756Z",
+      "requestedBy": "jumabarack17@gmail.com",
+      "refundRequested": true,
+      "refundAmount": 31250.5,
+      "status": "approved"
+    },
+    "refund": {
+      "amount": 31250.5,
+      "date": "2026-06-02T23:21:13.859Z",
+      "id": "REF_1780442473859",
+      "fallback": true
+    }
+  },
+  {
+    "id": "PENDING_1780442295866",
+    "userEmail": "jumabarack17@gmail.com",
+    "property": "Luxury Studio Apartment",
+    "checkIn": "2026-06-04",
+    "checkOut": "2026-06-10",
+    "guests": "2",
+    "nights": 6,
+    "amount": 500,
+    "createdDate": "2026-06-02T23:18:15.866Z",
+    "status": "cancelled",
+    "paymentId": 1780442332679,
+    "paymentAmount": 500,
+    "paymentCurrency": "USD",
+    "paymentProvider": "Card",
+    "paymentCaptureId": null,
+    "paidAmount": 500,
+    "confirmedDate": "2026-06-02T23:18:52.722Z",
+    "cancellation": {
+      "requestedAt": "2026-06-02T23:20:29.273Z",
+      "requestedBy": "jumabarack17@gmail.com",
+      "refundRequested": true,
+      "refundAmount": 250,
+      "status": "approved"
+    },
+    "refund": {
+      "amount": 250,
+      "date": "2026-06-02T23:21:21.677Z",
+      "id": "REF_1780442481677",
+      "fallback": true
+    }
+  },
+  {
+    "id": "PENDING_1780442811654",
+    "userEmail": "jumabarack17@gmail.com",
+    "property": "Elegant One Bedroom",
+    "checkIn": "2026-06-04",
+    "checkOut": "2026-06-07",
+    "guests": "4",
+    "nights": 3,
+    "amount": 250,
+    "createdDate": "2026-06-02T23:26:51.654Z",
+    "status": "cancelled",
+    "paymentId": "DEMO_1780442821586",
+    "paymentAmount": 37500,
+    "paymentCurrency": "KES",
+    "paymentProvider": "M-Pesa",
+    "paymentCaptureId": null,
+    "paidAmount": 37500,
+    "confirmedDate": "2026-06-02T23:27:01.184Z",
+    "cancellation": {
+      "requestedAt": "2026-06-02T23:27:28.153Z",
+      "requestedBy": "jumabarack17@gmail.com",
+      "refundRequested": true,
+      "refundAmount": 18750,
+      "status": "approved"
+    },
+    "refund": {
+      "amount": 18750,
+      "date": "2026-06-02T23:36:06.108Z",
+      "id": "REF_1780443366108",
+      "fallback": true
+    }
+  },
+  {
+    "id": "TEST_BOOKING_4244",
+    "userEmail": "testuser@example.com",
+    "userName": "Test User",
+    "property": "Test Room",
+    "checkIn": "2026-07-01",
+    "checkOut": "2026-07-05",
+    "guests": "2",
+    "nights": 4,
+    "amount": 400,
+    "createdDate": "2026-06-02T00:00:00.000Z",
+    "status": "confirmed"
+  },
+  {
+    "id": "PENDING_1780443212224",
+    "userEmail": "jumabarack17@gmail.com",
+    "property": "Luxury Studio Apartment",
+    "checkIn": "2026-06-04",
+    "checkOut": "2026-06-12",
+    "guests": "2",
+    "nights": 8,
+    "amount": 666.67,
+    "createdDate": "2026-06-02T23:33:32.224Z",
+    "status": "confirmed",
+    "paymentId": "DEMO_1780443222927",
+    "paymentAmount": 100001,
+    "paymentCurrency": "KES",
+    "paymentProvider": "M-Pesa",
+    "paymentCaptureId": null,
+    "paidAmount": 100001,
+    "confirmedDate": "2026-06-02T23:33:42.458Z",
+    "cancellation": {
+      "requestedAt": "2026-06-02T23:34:42.753Z",
+      "requestedBy": "jumabarack17@gmail.com",
+      "refundRequested": true,
+      "refundAmount": 50000.5,
+      "status": "denied"
+    }
   }
 ]

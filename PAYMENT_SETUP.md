@@ -174,6 +174,30 @@ The app runs on:
 
 ---
 
+## 4. Email Configuration (Optional)
+
+Nyodera Heights can send transactional emails (password resets, OTPs, receipts). The server supports multiple delivery methods: a provider HTTP API (recommended), a generic API adapter, or SMTP.
+
+Add email settings to your local `.env` (see `.env.example`). Important variables:
+
+- `EMAIL_PROVIDER` — provider identifier (e.g. `unione`).
+- `EMAIL_API_URL` and `EMAIL_API_KEY` — for provider HTTP APIs.
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` — for SMTP.
+- `EMAIL_FROM` — default From header.
+- `EMAIL_ENVELOPE_FROM` — SMTP/envelope-from address (used for bounce handling).
+- `EMAIL_SENDING_DOMAIN` — the verified sending domain for your provider.
+- `CONFIRMED_SENDING_ADDRESS` — the confirmed sender address for account verification.
+
+Example (see `.env.example`):
+
+```
+EMAIL_SENDING_DOMAIN=sandbox-7150788-12ba29.unionemailer.com
+CONFIRMED_SENDING_ADDRESS=barackjuma911@gmail.com
+```
+
+Do not commit your real `.env` file. Keep API keys and SMTP credentials private.
+
+
 ## Troubleshooting
 
 | Issue | Solution |

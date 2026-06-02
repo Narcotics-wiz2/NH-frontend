@@ -21,17 +21,30 @@ const formMessage = document.getElementById('form-message');
 // ============================================
 
 function toggleMobileMenu() {
-    if (hamburger) {
-        hamburger.addEventListener('click', () => {
-            navLinks.style.display = navLinks.style.display === 'flex' ? 'none' : 'flex';
-        });
+    if (!hamburger || !navLinks) return;
 
-        navItems.forEach(item => {
-            item.addEventListener('click', () => {
-                navLinks.style.display = 'none';
-            });
+    const closeMenu = () => {
+        navLinks.classList.remove('open');
+        document.body.classList.remove('menu-open');
+    };
+
+    hamburger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const isOpen = navLinks.classList.toggle('open');
+        document.body.classList.toggle('menu-open', isOpen);
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!navLinks.contains(event.target) && !hamburger.contains(event.target)) {
+            closeMenu();
+        }
+    });
+
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            closeMenu();
         });
-    }
+    });
 }
 
 // ============================================
@@ -307,6 +320,7 @@ function renderBookings() {
                 </div>
                 <div class="booking-actions">
                     <button class="btn-extend" onclick="openExtendModal('${booking.id}', '${booking.checkOut}')" ${booking.status === 'cancellation_pending' ? 'disabled' : ''}>Extend Stay</button>
+                    <button class="btn-room-service" onclick="openRoomServiceModal('${booking.id}')" ${booking.status === 'cancellation_pending' ? 'disabled' : ''}>Room Service</button>
                     <button class="btn-cancel" onclick="showCancelConfirmation('${booking.id}')" ${booking.status === 'cancellation_pending' ? 'disabled' : ''}>Cancel Booking</button>
                 </div>
             </div>
@@ -778,7 +792,7 @@ function normalizeServerBase(value) {
 function getPaymentsServerCandidates() {
     const candidates = [];
     const envServer = normalizeServerBase(window.PAYMENTS_SERVER || '');
-    const origin = normalizeServerBase(window.location.origin || '');
+    const origin = window.location.protocol === 'file:' ? '' : normalizeServerBase(window.location.origin || '');
     const pathname = window.location.pathname || '';
 
     if (envServer) candidates.push(envServer);
@@ -797,24 +811,34 @@ function getPaymentsServerCandidates() {
                 candidates.push(`${window.location.protocol}//4242-${host}`);
             }
         }
+
+        const hostName = window.location.hostname;
+        if (hostName) {
+            candidates.push(`${window.location.protocol}//${hostName}:4242`);
+            candidates.push(`${window.location.protocol}//${hostName}:4243`);
+        }
     }
 
     if (origin && !origin.startsWith('file:')) {
         candidates.push('');
     }
 
-    candidates.push('http://localhost:4242', 'https://localhost:4242');
+    candidates.push('http://localhost:4242', 'https://localhost:4242', 'http://localhost:4243', 'https://localhost:4243');
     return Array.from(new Set(candidates));
 }
 
 async function probePaymentsServerBase(base) {
     const url = base ? `${base}/config` : '/config';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
     try {
-        const resp = await fetch(url, { method: 'GET' });
+        const resp = await fetch(url, { method: 'GET', signal: controller.signal });
         return resp.ok;
     } catch (err) {
         console.warn('[Payments] probe failed:', url, err);
         return false;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 
@@ -880,6 +904,12 @@ async function finalizeBookingAfterPayment(paymentRecord) {
 
             localStorage.setItem('nh_bookings', JSON.stringify(bookings));
             localStorage.removeItem('nh_pending_extension');
+
+            try {
+                await createBooking(booking);
+            } catch (err) {
+                console.warn('Unable to sync extended booking to server:', err);
+            }
 
             alert(`Stay extension confirmed!\nProperty: ${booking.property}\nNew check-out date: ${new Date(pendingExtension.newCheckOut).toLocaleDateString()}\nAmount paid: ${formatCurrency(paymentRecord.amount, paymentRecord.currency || 'USD')}`);
             window.location.href = 'reservations.html';
@@ -1065,6 +1095,10 @@ async function changeUserPassword(email, currentPassword, newPassword) {
     return apiRequest('/api/auth/password', { method: 'PATCH', body: { email, currentPassword, newPassword } });
 }
 
+async function getUserDetails(email) {
+    return apiRequest(`/api/auth/me?email=${encodeURIComponent(email)}`);
+}
+
 async function createBooking(booking) {
     return apiRequest('/api/bookings', { method: 'POST', body: booking });
 }
@@ -1111,23 +1145,50 @@ function setupAuthNav() {
     if (session) {
         removeLink('a[href="login.html"]');
         removeLink('a[href="signup.html"]');
+        removeLink('a[href="account.html"]');
+        removeLink('#nav-logout-link');
 
-        if (!hasLink('account.html')) {
-            const accountItem = createNavItem('account.html', 'Account');
-            nav.appendChild(accountItem);
-        }
         if (session.role === 'admin' && !hasLink('admin.html')) {
             const adminItem = createNavItem('admin.html', 'Admin');
             nav.appendChild(adminItem);
         }
-        if (!nav.querySelector('#nav-logout-link')) {
-            const logoutItem = createNavItem('#', 'Log Out', 'nav-logout-link');
-            logoutItem.querySelector('a').addEventListener('click', (e) => {
-                e.preventDefault();
-                clearSession();
-                window.location.href = 'login.html';
-            });
-            nav.appendChild(logoutItem);
+
+        const navAccount = document.getElementById('nav-account');
+        if (navAccount) {
+            const initials = getUserInitials(session);
+            navAccount.classList.add('nav-account-avatar');
+            navAccount.innerHTML = `
+                <span class="nav-account-initials">${initials}</span>
+                <div class="nav-account-menu">
+                    <button class="nav-account-menu-item" type="button" data-action="account">Account</button>
+                    <button class="nav-account-menu-item" type="button" data-action="logout">Log Out</button>
+                </div>
+            `;
+            navAccount.title = `Signed in as ${session.name || session.email}`;
+            navAccount.onclick = (e) => {
+                e.stopPropagation();
+                toggleAccountMenu(navAccount);
+            };
+
+            const menu = navAccount.querySelector('.nav-account-menu');
+            if (menu) {
+                menu.addEventListener('click', (e) => e.stopPropagation());
+                const accountBtn = menu.querySelector('[data-action="account"]');
+                const logoutBtn = menu.querySelector('[data-action="logout"]');
+                if (accountBtn) {
+                    accountBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        window.location.href = 'account.html';
+                    });
+                }
+                if (logoutBtn) {
+                    logoutBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        clearSession();
+                        window.location.href = 'login.html';
+                    });
+                }
+            }
         }
     } else {
         removeLink('a[href="account.html"]');
@@ -1151,11 +1212,56 @@ function setupAuthNav() {
     }
 }
 
+function getUserInitials(session) {
+    const name = (session?.name || session?.email || '').trim();
+    if (!name) return '';
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) {
+        return parts[0].slice(0, 2).toUpperCase();
+    }
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function toggleAccountMenu(navAccount) {
+    const menu = navAccount.querySelector('.nav-account-menu');
+    if (!menu) return;
+    const isOpen = menu.style.display === 'block';
+    closeAccountMenu();
+    if (!isOpen) {
+        menu.style.display = 'block';
+        document.addEventListener('click', handleAccountMenuClose);
+    }
+}
+
+function closeAccountMenu() {
+    const openMenu = document.querySelector('.nav-account-menu');
+    if (openMenu) {
+        openMenu.style.display = 'none';
+        document.removeEventListener('click', handleAccountMenuClose);
+    }
+}
+
+function handleAccountMenuClose(event) {
+    const menu = document.querySelector('.nav-account-menu');
+    if (!menu) return;
+    const navAccount = document.getElementById('nav-account');
+    if (navAccount && !navAccount.contains(event.target)) {
+        closeAccountMenu();
+    }
+}
+
 function setupAccountPage() {
     const accountForm = document.getElementById('account-form');
     const accountInfo = document.getElementById('account-info');
     const accountMessage = document.getElementById('account-message');
     const logoutButton = document.getElementById('logout-button');
+    const verificationStatus = document.getElementById('verification-status');
+    const verificationMessage = document.getElementById('verification-message');
+    const sendVerificationBtn = document.getElementById('send-verification-btn');
+    const verifyCodePanel = document.getElementById('verification-code-panel');
+    const verificationOtpInput = document.getElementById('account-verification-otp');
+    const accountVerifyBtn = document.getElementById('account-verify-btn');
 
     if (!accountForm) return;
 
@@ -1164,11 +1270,87 @@ function setupAccountPage() {
         if (accountInfo) accountInfo.textContent = 'You are not logged in. Please log in first.';
         accountForm.style.display = 'none';
         if (logoutButton) logoutButton.style.display = 'none';
+        if (sendVerificationBtn) sendVerificationBtn.style.display = 'none';
+        if (verifyCodePanel) verifyCodePanel.style.display = 'none';
         return;
     }
 
-    if (accountInfo) {
-        accountInfo.textContent = `Signed in as ${session.email}. Use the form below to change your password.`;
+    const updateVerificationUI = (verified, showOtpPanel = false) => {
+        if (accountInfo) {
+            accountInfo.textContent = verified
+                ? `Signed in as ${session.email}. Your email is verified.`
+                : `Signed in as ${session.email}. Your email is not verified. Use the controls below to verify it.`;
+        }
+        if (verificationStatus) verificationStatus.textContent = verified ? 'Verified' : 'Not verified';
+        if (sendVerificationBtn) sendVerificationBtn.style.display = verified ? 'none' : 'inline-flex';
+        if (verifyCodePanel) verifyCodePanel.style.display = verified ? 'none' : (showOtpPanel ? 'flex' : 'none');
+    };
+
+    const refreshVerificationState = async () => {
+        try {
+            const userDetails = await getUserDetails(session.email);
+            updateVerificationUI(userDetails.verified, false);
+        } catch (err) {
+            if (verificationStatus) verificationStatus.textContent = 'Unable to load verification status.';
+        }
+    };
+
+    refreshVerificationState();
+
+    if (sendVerificationBtn) {
+        sendVerificationBtn.addEventListener('click', async () => {
+            if (verificationMessage) {
+                verificationMessage.textContent = '';
+                verificationMessage.className = 'form-message';
+            }
+            try {
+                const res = await apiRequest('/api/auth/send-verification', { method: 'POST', body: { email: session.email } });
+                if (verificationMessage) {
+                    verificationMessage.textContent = `${res.message || 'Verification code sent — check your email.'}`;
+                    verificationMessage.className = 'form-message info';
+                }
+                if (verifyCodePanel) verifyCodePanel.style.display = 'flex';
+                startResendCountdown(sendVerificationBtn, 60);
+            } catch (err) {
+                const wait = err?.waitSeconds || null;
+                if (wait) {
+                    if (verificationMessage) {
+                        verificationMessage.textContent = `Please wait ${wait}s before sending another code.`;
+                        verificationMessage.className = 'form-message error';
+                    }
+                    startResendCountdown(sendVerificationBtn, wait);
+                } else if (verificationMessage) {
+                    verificationMessage.textContent = err.message || 'Unable to send verification email';
+                    verificationMessage.className = 'form-message error';
+                }
+            }
+        });
+    }
+
+    if (accountVerifyBtn) {
+        accountVerifyBtn.addEventListener('click', async () => {
+            const code = verificationOtpInput?.value.trim();
+            if (!code) {
+                if (verificationMessage) {
+                    verificationMessage.textContent = 'Enter the verification code.';
+                    verificationMessage.className = 'form-message error';
+                }
+                return;
+            }
+            try {
+                await apiRequest('/api/auth/verify-otp', { method: 'POST', body: { email: session.email, otp: code } });
+                if (verificationMessage) {
+                    verificationMessage.textContent = 'Email verified successfully.';
+                    verificationMessage.className = 'form-message success';
+                }
+                updateVerificationUI(true, false);
+            } catch (err) {
+                if (verificationMessage) {
+                    verificationMessage.textContent = err.message || 'Verification failed';
+                    verificationMessage.className = 'form-message error';
+                }
+            }
+        });
     }
 
     accountForm.addEventListener('submit', async (e) => {
@@ -1278,16 +1460,20 @@ async function setupAdminPage() {
         </tr>
     `).join('');
 
-    const paymentRows = payments.map(p => `
-        <tr>
+    const paymentRows = payments.map(p => {
+        const dateObj = new Date(p.date);
+        const dateStr = dateObj.toLocaleString();
+        return `
+        <tr data-payment-id="${p.id}" data-payment-date="${p.date}">
             <td>${p.id}</td>
             <td>${p.provider}</td>
             <td>${p.last4 || ''}</td>
             <td>${formatCurrency(p.amount, p.currency || 'USD')}</td>
-            <td>${new Date(p.date).toLocaleString()}</td>
+            <td>${dateStr}</td>
             <td>${p.status || 'unknown'}</td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 
     // Fetch properties so admin can edit rates
     let properties = [];
@@ -1334,9 +1520,68 @@ async function setupAdminPage() {
         </div>
         <div>
             <h3>Payments</h3>
-            <div class="table-container"><table><thead><tr><th>ID</th><th>Provider</th><th>Last4</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead><tbody>${paymentRows}</tbody></table></div>
+            <div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                <div>
+                    <label for="search-transaction-id" style="display:block;margin-bottom:6px;font-size:14px;color:#aaa;">Transaction ID</label>
+                    <input type="text" id="search-transaction-id" placeholder="Search by ID..." style="padding:8px;border:1px solid #333;border-radius:6px;background:#1a1a1a;color:#eee;font-size:14px;" />
+                </div>
+                <div>
+                    <label for="search-payment-date" style="display:block;margin-bottom:6px;font-size:14px;color:#aaa;">Date (YYYY-MM-DD)</label>
+                    <input type="date" id="search-payment-date" style="padding:8px;border:1px solid #333;border-radius:6px;background:#1a1a1a;color:#eee;font-size:14px;" />
+                </div>
+                <button id="clear-payment-search" class="btn-secondary" style="padding:8px 16px;">Clear Filters</button>
+            </div>
+            <div class="table-container"><table><thead><tr><th>ID</th><th>Provider</th><th>Last4</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead><tbody id="payments-tbody">${paymentRows}</tbody></table></div>
         </div>
     `;
+
+    // Setup payment search filters
+    const searchTransactionInput = document.getElementById('search-transaction-id');
+    const searchDateInput = document.getElementById('search-payment-date');
+    const clearSearchBtn = document.getElementById('clear-payment-search');
+    const paymentsTbody = document.getElementById('payments-tbody');
+
+    function filterPayments() {
+        const searchId = searchTransactionInput.value.toLowerCase().trim();
+        const searchDate = searchDateInput.value; // Format: YYYY-MM-DD
+        const rows = paymentsTbody.querySelectorAll('tr');
+
+        rows.forEach(row => {
+            const paymentId = row.getAttribute('data-payment-id') || '';
+            const paymentDate = row.getAttribute('data-payment-date') || '';
+            
+            let idMatch = true;
+            let dateMatch = true;
+
+            // Check transaction ID match
+            if (searchId) {
+                idMatch = paymentId.toLowerCase().includes(searchId);
+            }
+
+            // Check date match
+            if (searchDate) {
+                const paymentDateStr = paymentDate.split('T')[0]; // Extract YYYY-MM-DD from ISO string
+                dateMatch = paymentDateStr === searchDate;
+            }
+
+            // Show row if both conditions match
+            row.style.display = (idMatch && dateMatch) ? '' : 'none';
+        });
+    }
+
+    if (searchTransactionInput) {
+        searchTransactionInput.addEventListener('input', filterPayments);
+    }
+    if (searchDateInput) {
+        searchDateInput.addEventListener('change', filterPayments);
+    }
+    if (clearSearchBtn) {
+        clearSearchBtn.addEventListener('click', () => {
+            searchTransactionInput.value = '';
+            searchDateInput.value = '';
+            filterPayments();
+        });
+    }
 }
 
 function setupAuthForms() {
@@ -1351,6 +1596,7 @@ function setupAuthForms() {
         }
 
         const msg = document.getElementById('signup-message');
+
         signupForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('signup-name').value.trim();
@@ -1371,71 +1617,11 @@ function setupAuthForms() {
 
             try {
                 const user = await signupUser(name, email, pass);
-                if (user && user.needsVerification) {
-                    // show OTP input and wait for verification
-                    showOtpForm(user.email);
-                    msg.textContent = 'A verification code was sent to your email. Enter it below.';
-                    msg.className = 'form-message info';
-                    return;
-                }
-
-                localStorage.setItem('nh_session', JSON.stringify({ email: user.email, name: user.name, role: user.role }));
+                localStorage.setItem('nh_session', JSON.stringify({ email: user.email, name: user.name, role: user.role, verified: user.verified }));
                 window.location.href = 'index.html';
             } catch (err) {
                 msg.textContent = err.message;
                 msg.className = 'form-message error';
-            }
-        });
-    }
-
-    // OTP verification form handlers
-    function showOtpForm(email) {
-        const container = document.querySelector('.contact-form-wrapper');
-        if (!container) return;
-        // avoid duplicating
-        if (document.getElementById('signup-otp-form')) return;
-
-        const otpHtml = `
-            <div id="signup-otp-form" style="margin-top:16px">
-                <label for="signup-otp">Verification Code</label>
-                <input id="signup-otp" type="text" style="width:200px;margin-left:8px" />
-                <button id="signup-verify-btn" class="btn-primary" style="margin-left:8px">Verify</button>
-                <button id="signup-resend-btn" class="btn-secondary" style="margin-left:8px">Resend</button>
-                <div id="signup-otp-message" style="margin-top:8px"></div>
-            </div>
-        `;
-        container.insertAdjacentHTML('beforeend', otpHtml);
-
-        document.getElementById('signup-verify-btn').addEventListener('click', async () => {
-            const code = document.getElementById('signup-otp').value.trim();
-            const otpMsg = document.getElementById('signup-otp-message');
-            if (!code) { otpMsg.textContent = 'Enter the code'; otpMsg.className = 'form-message error'; return; }
-            try {
-                const res = await apiRequest('/api/auth/verify-otp', { method: 'POST', body: { email, otp: code } });
-                // success — log in and redirect
-                localStorage.setItem('nh_session', JSON.stringify({ email: res.email, name: res.name, role: res.role }));
-                otpMsg.textContent = 'Email verified — redirecting...'; otpMsg.className = 'form-message success';
-                setTimeout(() => window.location.href = 'index.html', 900);
-            } catch (err) {
-                otpMsg.textContent = err.message || 'Verification failed'; otpMsg.className = 'form-message error';
-            }
-        });
-
-        const resendBtn = document.getElementById('signup-resend-btn');
-        document.getElementById('signup-resend-btn').addEventListener('click', async () => {
-            const otpMsg = document.getElementById('signup-otp-message');
-            try {
-                const res = await apiRequest('/api/auth/resend-otp', { method: 'POST', body: { email } });
-                otpMsg.textContent = 'OTP resent — check your email'; otpMsg.className = 'form-message info';
-                startResendCountdown(resendBtn, 60);
-            } catch (err) {
-                const wait = err?.waitSeconds || null;
-                if (wait) {
-                    otpMsg.textContent = `Please wait ${wait}s before resending.`; otpMsg.className = 'form-message error';
-                    startResendCountdown(resendBtn, wait);
-                } else {
-                    otpMsg.textContent = err.message || 'Unable to resend OTP'; otpMsg.className = 'form-message error';
-                }
             }
         });
     }
@@ -1581,30 +1767,75 @@ function setupAuthForms() {
         if (existing) return;
         const container = document.querySelector('.contact-form-wrapper');
         if (!container) return;
+
         const el = document.createElement('div');
         el.id = 'login-resend';
         el.style.marginTop = '12px';
-        el.innerHTML = `<span style="margin-right:8px">Didn't receive a code?</span><button id="login-resend-btn" class="btn-secondary">Resend verification</button><span id="login-resend-msg" style="margin-left:12px"></span>`;
+        el.innerHTML = `
+            <div style="margin-bottom:12px;font-size:0.95rem;color:#ddd">
+                Your email is not verified yet. Enter the code from your email or resend it below.
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+                <input id="login-otp" type="text" placeholder="Verification code" style="width:180px;padding:8px;border-radius:4px;border:1px solid #333;background:#0f0f0f;color:#fff;" />
+                <button id="login-verify-btn" class="btn-primary">Verify code</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <button id="login-resend-btn" class="btn-secondary">Resend verification</button>
+                <span id="login-resend-msg" style="margin-left:12px"></span>
+            </div>
+        `;
+
         container.appendChild(el);
+
+        const loginVerifyBtn = document.getElementById('login-verify-btn');
         const loginResendBtn = document.getElementById('login-resend-btn');
-        document.getElementById('login-resend-btn').addEventListener('click', async () => {
-            const msgSpan = document.getElementById('login-resend-msg');
-            try {
-                const res = await apiRequest('/api/auth/resend-otp', { method: 'POST', body: { email } });
-                msgSpan.textContent = 'Code resent — check your email';
-                msgSpan.className = 'form-message info';
-                startResendCountdown(loginResendBtn, 60);
-            } catch (err) {
-                const wait = err?.waitSeconds || null;
-                if (wait) {
-                    msgSpan.textContent = `Please wait ${wait}s before resending.`; msgSpan.className = 'form-message error';
-                    startResendCountdown(loginResendBtn, wait);
-                } else {
-                    msgSpan.textContent = err.message || 'Unable to resend';
+        const msgSpan = document.getElementById('login-resend-msg');
+
+        if (loginVerifyBtn) {
+            loginVerifyBtn.addEventListener('click', async (event) => {
+                event.preventDefault();
+                const codeInput = document.getElementById('login-otp');
+                if (!codeInput) return;
+                const code = codeInput.value.trim();
+                if (!code) {
+                    msgSpan.textContent = 'Enter the verification code.';
+                    msgSpan.className = 'form-message error';
+                    return;
+                }
+
+                try {
+                    const res = await apiRequest('/api/auth/verify-otp', { method: 'POST', body: { email, otp: code } });
+                    localStorage.setItem('nh_session', JSON.stringify({ email: res.email, name: res.name, role: res.role || 'user' }));
+                    msgSpan.textContent = 'Verified! Redirecting...';
+                    msgSpan.className = 'form-message success';
+                    setTimeout(() => window.location.href = 'index.html', 900);
+                } catch (err) {
+                    msgSpan.textContent = err.message || 'Verification failed';
                     msgSpan.className = 'form-message error';
                 }
-            }
-        });
+            });
+        }
+
+        if (loginResendBtn) {
+            loginResendBtn.addEventListener('click', async () => {
+                try {
+                    const res = await apiRequest('/api/auth/resend-otp', { method: 'POST', body: { email } });
+                    msgSpan.textContent = 'Code resent — check your email';
+                    msgSpan.className = 'form-message info';
+                    startResendCountdown(loginResendBtn, 60);
+                } catch (err) {
+                    const wait = err?.waitSeconds || null;
+                    if (wait) {
+                        msgSpan.textContent = `Please wait ${wait}s before resending.`;
+                        msgSpan.className = 'form-message error';
+                        startResendCountdown(loginResendBtn, wait);
+                    } else {
+                        msgSpan.textContent = err.message || 'Unable to resend';
+                        msgSpan.className = 'form-message error';
+                    }
+                }
+            });
+        }
     }
 
     function startResendCountdown(button, seconds) {
@@ -1631,6 +1862,7 @@ async function approveCancellation(bookingId) {
     if (!confirm('Approve cancellation and issue 50% refund for booking ' + bookingId + '?')) return;
         try {
             const base = await getPaymentsServer();
+            console.log('approveCancellation base:', base || '(relative)');
             const resp = await fetch((base ? base : '') + `/api/bookings/${encodeURIComponent(bookingId)}/approve-cancellation`, { method: 'POST' });
             const data = await resp.json().catch(() => null);
             if (!resp.ok) throw new Error(data?.error || 'Approve failed');
@@ -1655,6 +1887,7 @@ function denyCancellation(bookingId) {
     (async () => {
         try {
             const base = await getPaymentsServer();
+            console.log('denyCancellation base:', base || '(relative)');
             const resp = await fetch((base ? base : '') + `/api/bookings/${encodeURIComponent(bookingId)}/deny-cancellation`, { method: 'POST' });
             const data = await resp.json().catch(() => null);
             if (!resp.ok) throw new Error(data?.error || 'Deny failed');
@@ -2149,6 +2382,149 @@ function setupStripeAndPayPal() {
     }
 }
 
+
+// ============================================
+// ROOM SERVICE MANAGEMENT
+// ============================================
+
+let currentBookingForRoomService = null;
+
+async function openRoomServiceModal(bookingId) {
+    currentBookingForRoomService = bookingId;
+    const modal = document.getElementById('room-service-modal');
+    if (!modal) return;
+
+    // Load room service categories
+    try {
+        const base = await getPaymentsServer();
+        const url = (base ? base : '') + '/api/room-service-categories';
+        const response = await fetch(url);
+        const categories = await response.json();
+
+        const container = document.getElementById('room-service-categories-container');
+        if (container) {
+            container.innerHTML = categories.map(cat => `
+                <div class="room-service-category">
+                    <h3>${cat.name}</h3>
+                    <div class="room-service-items">
+                        ${cat.items.map(item => `
+                            <div class="room-service-item">
+                                <div class="room-service-item-info">
+                                    <div class="room-service-item-name">${item.name}</div>
+                                    <div class="room-service-item-price">${item.price > 0 ? '$' + item.price : 'Free'}</div>
+                                </div>
+                                <button type="button" class="room-service-item-btn" onclick="requestRoomService('${cat.id}', '${item.id}', '${item.name}', ${item.price})">Request</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Load room service history
+        await loadRoomServiceHistory(bookingId);
+    } catch (err) {
+        console.error('Error loading room service categories:', err);
+        alert('Failed to load room service options');
+    }
+
+    modal.style.display = 'block';
+}
+
+function closeRoomServiceModal() {
+    const modal = document.getElementById('room-service-modal');
+    if (modal) modal.style.display = 'none';
+    currentBookingForRoomService = null;
+}
+
+async function requestRoomService(categoryId, serviceId, serviceName, price) {
+    const session = getSession();
+    if (!session) {
+        alert('Please log in to request room service');
+        return;
+    }
+
+    if (!currentBookingForRoomService) {
+        alert('No booking selected');
+        return;
+    }
+
+    try {
+        const base = await getPaymentsServer();
+        const url = (base ? base : '') + '/api/room-service/request';
+        
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                bookingId: currentBookingForRoomService,
+                userEmail: session.email,
+                category: categoryId,
+                service: serviceId,
+                quantity: 1,
+                specialRequests: ''
+            })
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+            alert(data.error || 'Failed to request room service');
+            return;
+        }
+
+        alert(`Room service requested: ${serviceName}${price > 0 ? ' (Cost: $' + price + ')' : ''}`);
+        
+        // Reload room service history
+        await loadRoomServiceHistory(currentBookingForRoomService);
+    } catch (err) {
+        console.error('Error requesting room service:', err);
+        alert('Failed to request room service');
+    }
+}
+
+async function loadRoomServiceHistory(bookingId) {
+    const session = getSession();
+    if (!session) return;
+
+    try {
+        const base = await getPaymentsServer();
+        const url = (base ? base : '') + `/api/room-service/booking/${bookingId}?userEmail=${encodeURIComponent(session.email)}`;
+        
+        const response = await fetch(url);
+        const services = await response.json();
+
+        const historyContainer = document.getElementById('room-service-list');
+        if (historyContainer) {
+            if (services.length === 0) {
+                historyContainer.innerHTML = '<p style="color:#999;font-size:0.9rem">No room service requests yet</p>';
+            } else {
+                historyContainer.innerHTML = services.map(service => {
+                    const requestedDate = new Date(service.requestedAt);
+                    const statusColor = service.status === 'completed' ? '#4CAF50' : 
+                                      service.status === 'cancelled' ? '#ff6b6b' : '#ff9800';
+                    
+                    return `
+                        <div class="room-service-request ${service.status}">
+                            <div style="display:flex;justify-content:space-between;align-items:center">
+                                <div>
+                                    <strong>${service.service}</strong> - 
+                                    <span style="color:${statusColor}">${service.status.toUpperCase()}</span>
+                                </div>
+                                <div style="text-align:right">
+                                    <div>$${service.price.toFixed(2)}</div>
+                                    <small style="color:#999">${requestedDate.toLocaleDateString()}</small>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+    } catch (err) {
+        console.error('Error loading room service history:', err);
+    }
+}
 
 // ============================================
 // UTILITY FUNCTIONS
