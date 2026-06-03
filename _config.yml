@@ -1,0 +1,12 @@
+theme: jekyll-theme-primer
+repository: Nyoderahomes/NH
+
+exclude:
+  - node_modules
+  - server/node_modules
+  - .git
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+
+title: Nyoderahomes NH
