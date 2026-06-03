@@ -2,6 +2,9 @@
 // NYODERA HEIGHTS - JAVASCRIPT
 // ============================================
 
+// Auto-configured backend server for API calls
+window.PAYMENTS_SERVER = 'https://nyoderahomes-backend.onrender.com';
+
 // ============================================
 // DOM Elements
 // ============================================
@@ -448,84 +451,6 @@ function handleExtendStay(e) {
     window.location.href = targetUrl;
 }
 
-function showCancelConfirmation(bookingId) {
-    const modal = document.getElementById('cancel-modal');
-    if (!modal) return;
-
-    const confirmRefund = document.getElementById('confirm-cancel-refund');
-    const confirmNoRefund = document.getElementById('confirm-cancel-no-refund');
-
-    if (confirmRefund) {
-        confirmRefund.onclick = () => {
-            cancelBooking(bookingId, true);
-        };
-    }
-
-    if (confirmNoRefund) {
-        confirmNoRefund.onclick = () => {
-            cancelBooking(bookingId, false);
-        };
-    }
-
-    modal.style.display = 'block';
-}
-
-function closeCancelModal() {
-    const modal = document.getElementById('cancel-modal');
-    if (modal) modal.style.display = 'none';
-}
-
-function cancelBooking(bookingId, issueRefund = true) {
-    closeCancelModal();
-    // Send cancellation request to server
-    (async () => {
-        try {
-            const base = await getPaymentsServer();
-            const url = (base ? base : '') + '/api/bookings/cancel-request';
-            const payload = { bookingId, refundRequested: Boolean(issueRefund), requestedBy: getSession()?.email };
-
-            let resp = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            let data = await resp.json().catch(() => null);
-
-            if (!resp.ok && data?.error === 'Booking not found') {
-                const allBookings = JSON.parse(localStorage.getItem('nh_bookings') || '[]');
-                const booking = allBookings.find(b => String(b.id) === String(bookingId));
-                if (booking) {
-                    try {
-                        await createBooking(booking);
-                        resp = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        data = await resp.json().catch(() => null);
-                    } catch (syncErr) {
-                        console.warn('Unable to sync booking to server before cancellation:', syncErr);
-                    }
-                }
-            }
-
-            if (!resp.ok) throw new Error(data?.error || 'Cancellation request failed');
-
-            // Update local cache and UI
-            const allBookings = JSON.parse(localStorage.getItem('nh_bookings') || '[]');
-            const idx = allBookings.findIndex(b => String(b.id) === String(bookingId));
-            if (idx >= 0) allBookings[idx] = data.booking;
-            localStorage.setItem('nh_bookings', JSON.stringify(allBookings));
-            renderBookings();
-            alert('Your cancellation request has been submitted and is pending admin approval.');
-        } catch (err) {
-            console.error('cancelBooking error', err);
-            alert('Unable to submit cancellation request: ' + (err.message || err));
-        }
-    })();
-    
-}
-
 // Close modal when clicking outside
 window.onclick = function(event) {
     const extendModal = document.getElementById('extend-modal');
@@ -602,8 +527,8 @@ const PRICE_PER_MONTH = 2500; // USD (fallback)
 // Load properties from server into local cache for client-side pricing
 async function loadPropertiesIntoCache() {
     try {
-        const base = await getPaymentsServer();
-        const resp = await fetch((base ? base : '') + '/api/properties');
+        const base = window.PAYMENTS_SERVER;
+        const resp = await fetch(`${base}/api/properties`);
         if (!resp.ok) return;
         const props = await resp.json().catch(() => []);
         if (Array.isArray(props)) {
@@ -644,7 +569,7 @@ function loadPropertyDetails(id) {
             bedrooms: 1,
             bathrooms: 1,
             sqft: '550 sq ft',
-            description: 'Experience luxury living in this beautifully furnished studio apartment. Located in the heart of the downtown district, this property offers the perfect blend of comfort, style, and convenience.'
+            description: 'Experience luxury living in this beautifully furnished studio apartment. Located in the heart of the downtown district, this property offers the perfect blend of comfort[...]
         },
         2: {
             title: 'Elegant One Bedroom',
@@ -781,282 +706,10 @@ function loadPayPalSdk(clientId) {
     });
 }
 
-const DEFAULT_PAYMENTS_SERVER = 'https://nyoderahomes-backend.onrender.com';
-let paymentsServerCache = null;
-let paymentsServerProbePromise = null;
-
-function normalizeServerBase(value) {
-    if (!value) return '';
-    return value.toString().trim().replace(/\/+$/g, '');
-}
-
-function getPaymentsServerCandidates() {
-    const candidates = [];
-    const envServer = normalizeServerBase(window.PAYMENTS_SERVER || '');
-    const origin = window.location.protocol === 'file:' ? '' : normalizeServerBase(window.location.origin || '');
-    const pathname = window.location.pathname || '';
-
-    if (envServer) {
-        candidates.push(envServer);
-    }
-    candidates.push(DEFAULT_PAYMENTS_SERVER);
-    if (origin) {
-        candidates.push(origin);
-
-        const pathPrefixMatch = pathname.match(/^\/(\d+)(?:\/|$)/);
-        if (pathPrefixMatch) {
-            candidates.push(`${origin}/${pathPrefixMatch[1]}`);
-        }
-
-        if (origin.includes('.app.github.dev') || origin.includes('.githubpreview.dev') || origin.includes('.github.dev')) {
-            candidates.push(`${origin}/4242`);
-            const host = origin.replace(/^https?:\/\//, '');
-            if (!host.startsWith('4242-')) {
-                candidates.push(`${window.location.protocol}//4242-${host}`);
-            }
-        }
-
-        const hostName = window.location.hostname;
-        if (hostName) {
-            candidates.push(`${window.location.protocol}//${hostName}:4242`);
-            candidates.push(`${window.location.protocol}//${hostName}:4243`);
-        }
-    }
-
-    if (origin && !origin.startsWith('file:')) {
-        candidates.push('');
-    }
-
-    candidates.push('http://localhost:4242', 'https://localhost:4242', 'http://localhost:4243', 'https://localhost:4243');
-    return Array.from(new Set(candidates));
-}
-
-async function probePaymentsServerBase(base) {
-    const url = base ? `${base}/config` : '/config';
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
-    try {
-        const resp = await fetch(url, { method: 'GET', signal: controller.signal });
-        return resp.ok;
-    } catch (err) {
-        console.warn('[Payments] probe failed:', url, err);
-        return false;
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-
-async function getPaymentsServer() {
-    if (paymentsServerCache !== null) return paymentsServerCache;
-    if (!paymentsServerProbePromise) {
-        paymentsServerProbePromise = (async () => {
-            const candidates = getPaymentsServerCandidates();
-            for (const base of candidates) {
-                const normalized = normalizeServerBase(base);
-                const probeUrl = normalized ? `${normalized}/config` : '/config';
-                console.log('[Payments] probing server base:', probeUrl);
-                if (await probePaymentsServerBase(normalized)) {
-                    paymentsServerCache = normalized;
-                    console.log('[Payments] selected server base:', normalized || '(relative)');
-                    return normalized;
-                }
-            }
-            paymentsServerCache = normalizeServerBase(DEFAULT_PAYMENTS_SERVER);
-            console.warn('[Payments] no valid server base found from probes, falling back to default:', paymentsServerCache);
-            return paymentsServerCache;
-        })();
-    }
-    return paymentsServerProbePromise;
-}
-
-// Persist a payment record and attach the current logged-in user if any
-function addPaymentRecord(record) {
-    try {
-        const session = getSession();
-        const payments = JSON.parse(localStorage.getItem('nh_payments') || '[]');
-        const rec = Object.assign({}, record, { userEmail: session?.email || null });
-        payments.push(rec);
-        localStorage.setItem('nh_payments', JSON.stringify(payments));
-        return rec;
-    } catch (err) {
-        console.error('addPaymentRecord error', err);
-        return record;
-    }
-}
-
-// Finalize a pending booking (if any) after receiving a payment record
-async function finalizeBookingAfterPayment(paymentRecord) {
-    try {
-        const pendingExtension = JSON.parse(localStorage.getItem('nh_pending_extension') || 'null');
-        if (pendingExtension) {
-            const session = getSession();
-            if (pendingExtension.userEmail && session && pendingExtension.userEmail !== session.email) return;
-
-            const bookings = JSON.parse(localStorage.getItem('nh_bookings') || '[]');
-            const booking = bookings.find(b => b.id === pendingExtension.bookingId);
-            if (!booking) {
-                console.error('No booking found for extension payment', pendingExtension.bookingId);
-                return;
-            }
-
-            booking.checkOut = pendingExtension.newCheckOut;
-            booking.paidAmount = Number((booking.paidAmount || 0) + paymentRecord.amount);
-            booking.extensionPaymentId = paymentRecord.id;
-            booking.extensionPaidAmount = paymentRecord.amount;
-            booking.extensionNights = pendingExtension.additionalNights;
-            booking.lastExtensionDate = new Date().toISOString();
-
-            localStorage.setItem('nh_bookings', JSON.stringify(bookings));
-            localStorage.removeItem('nh_pending_extension');
-
-            try {
-                await createBooking(booking);
-            } catch (err) {
-                console.warn('Unable to sync extended booking to server:', err);
-            }
-
-            alert(`Stay extension confirmed!\nProperty: ${booking.property}\nNew check-out date: ${new Date(pendingExtension.newCheckOut).toLocaleDateString()}\nAmount paid: ${formatCurrency(paymentRecord.amount, paymentRecord.currency || 'USD')}`);
-            window.location.href = 'reservations.html';
-            return;
-        }
-
-        const pending = JSON.parse(localStorage.getItem('nh_pending_booking') || 'null');
-        if (!pending) return;
-        const session = getSession();
-        if (pending.userEmail && session && pending.userEmail !== session.email) return;
-
-        const booking = Object.assign({}, pending, {
-            status: 'confirmed',
-            paymentId: paymentRecord.id,
-            paymentAmount: paymentRecord.amount,
-            paymentCurrency: paymentRecord.currency || 'USD',
-            paymentProvider: paymentRecord.provider || 'unknown',
-            paymentCaptureId: paymentRecord.captureId || null,
-            paidAmount: paymentRecord.amount,
-            confirmedDate: new Date().toISOString()
-        });
-
-        const bookings = JSON.parse(localStorage.getItem('nh_bookings') || '[]');
-        bookings.push(booking);
-        localStorage.setItem('nh_bookings', JSON.stringify(bookings));
-        localStorage.removeItem('nh_pending_booking');
-        try {
-            await createBooking(booking);
-        } catch (err) {
-            console.warn('Unable to save booking to server, continuing with local storage.', err);
-        }
-
-        alert(`Booking confirmed!\nProperty: ${booking.property}\nCheck-in: ${booking.checkIn}\nCheck-out: ${booking.checkOut}\nAmount paid: ${formatCurrency(booking.paidAmount, paymentRecord.currency || 'USD')}`);
-        // Redirect to reservations page so user can view the confirmed booking
-        window.location.href = 'reservations.html';
-    } catch (err) {
-        console.error('finalizeBookingAfterPayment error', err);
-    }
-}
-
-async function checkStripeCheckoutResult() {
-    const sessionId = getUrlParameter('session_id');
-    const canceled = getUrlParameter('canceled');
-    if (!sessionId && !canceled) return;
-
-    const base = await getPaymentsServer();
-    if (canceled) {
-        alert('Stripe checkout was canceled.');
-        return;
-    }
-
-    try {
-        const resp = await fetch(base + `/checkout-session/${encodeURIComponent(sessionId)}`);
-        if (!resp.ok) throw new Error('Unable to retrieve session');
-        const session = await resp.json();
-        const amount = session.amount_total / 100;
-        const paymentIntent = session.payment_intent;
-        const last4 = paymentIntent?.charges?.data?.[0]?.payment_method_details?.card?.last4 || 'card';
-        const record = {
-            id: session.id,
-            provider: 'Stripe',
-            amount,
-            currency: 'USD',
-            last4,
-            date: new Date().toISOString(),
-            status: session.payment_status,
-            description: session.payment_intent?.description || 'Stripe Checkout'
-        };
-        // Persist payment and associate with any pending booking
-        const saved = addPaymentRecord(record);
-        renderPaymentHistory();
-        alert(`Stripe payment completed: ${formatCurrency(amount, 'USD')}`);
-        // Finalize booking if there was a pending booking for this user
-        finalizeBookingAfterPayment(saved);
-        if (window.history.replaceState) {
-            window.history.replaceState({}, document.title, window.location.pathname);
-        }
-    } catch (err) {
-        console.error(err);
-        alert('Unable to verify Stripe checkout result.');
-    }
-}
-
-document.addEventListener('DOMContentLoaded', async () => {
-    toggleMobileMenu();
-    setupPriceFilter();
-    setupFilterButtons();
-    setupContactForm();
-    setupBookingForm();
-    setupSmoothScroll();
-    setupPropertyDetails();
-    observeElements();
-    setupAuthNav();
-    setupAuthForms();
-    setupAccountPage();
-    setupPaymentForm();
-    setupReservationsPage();
-    await setupAdminPage();
-
-    // Load payment configuration from server and initialize SDKs
-    const base = await getPaymentsServer();
-    try {
-        const cfgResp = await fetch((base ? base : '') + '/config');
-        if (cfgResp.ok) {
-            const cfg = await cfgResp.json();
-            if (cfg.stripePublishableKey) window.STRIPE_PUBLISHABLE_KEY = cfg.stripePublishableKey;
-            if (cfg.paypalClientId) {
-                try { await loadPayPalSdk(cfg.paypalClientId); } catch (e) { console.warn('PayPal SDK load failed', e); }
-            }
-        } else {
-            console.warn('Could not fetch payment config');
-        }
-    } catch (err) {
-        console.warn('Error fetching payment config', err);
-    }
-
-    setupStripeAndPayPal();
-    await checkStripeCheckoutResult();
-    // Load properties into local cache for client-side pricing
-    loadPropertiesIntoCache();
-
-    console.log('Nyodera Heights website initialized successfully!');
-});
-
-// ============================================
-// AUTH (LOGIN / SIGNUP) - simple client-side
-// ============================================
-function getSession() {
-    try {
-        return JSON.parse(localStorage.getItem('nh_session') || 'null');
-    } catch {
-        return null;
-    }
-}
-
-function clearSession() {
-    localStorage.removeItem('nh_session');
-}
-
 async function apiRequest(path, options = {}) {
-    const base = await getPaymentsServer();
+    const base = window.PAYMENTS_SERVER;
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    const url = base ? `${base}${cleanPath}` : cleanPath;
+    const url = `${base}${cleanPath}`;
 
     const fetchOptions = {
         method: options.method || 'GET',
@@ -1424,8 +1077,8 @@ async function setupAdminPage() {
     const payments = JSON.parse(localStorage.getItem('nh_payments') || '[]');
     // Try to fetch server-side bookings for authoritative data; preserve local cache if the server returns no bookings
     try {
-        const base = await getPaymentsServer();
-        const resp = await fetch((base ? base : '') + '/api/bookings');
+        const base = window.PAYMENTS_SERVER;
+        const resp = await fetch(`${base}/api/bookings`);
         if (resp.ok) {
             const serverBookings = await resp.json().catch(() => null);
             if (Array.isArray(serverBookings)) {
@@ -1482,8 +1135,8 @@ async function setupAdminPage() {
     // Fetch properties so admin can edit rates
     let properties = [];
     try {
-        const base = await getPaymentsServer();
-        const resp = await fetch((base ? base : '') + '/api/properties');
+        const base = window.PAYMENTS_SERVER;
+        const resp = await fetch(`${base}/api/properties`);
         if (resp.ok) properties = await resp.json().catch(() => []);
     } catch (err) {
         console.warn('Unable to load properties for admin page', err);
@@ -1685,8 +1338,8 @@ function setupAuthForms() {
                 const tempPassword = Math.random().toString(36).slice(-8);
 
                 try {
-                    const base = await getPaymentsServer();
-                    const response = await fetch((base ? base : '') + '/send-reset-email', {
+                    const base = window.PAYMENTS_SERVER;
+                    const response = await fetch(`${base}/send-reset-email`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ email, tempPassword })
@@ -1861,674 +1514,61 @@ function setupAuthForms() {
     }
 }
 
-// Admin: approve a pending cancellation and issue 50% refund
-async function approveCancellation(bookingId) {
-    if (!confirm('Approve cancellation and issue 50% refund for booking ' + bookingId + '?')) return;
-        try {
-            const base = await getPaymentsServer();
-            console.log('approveCancellation base:', base || '(relative)');
-            const resp = await fetch((base ? base : '') + `/api/bookings/${encodeURIComponent(bookingId)}/approve-cancellation`, { method: 'POST' });
-            const data = await resp.json().catch(() => null);
-            if (!resp.ok) throw new Error(data?.error || 'Approve failed');
-
-            // Update local cache
-            const allBookings = JSON.parse(localStorage.getItem('nh_bookings') || '[]');
-            const idx = allBookings.findIndex(b => String(b.id) === String(bookingId));
-            if (idx >= 0) allBookings[idx] = data.booking;
-            localStorage.setItem('nh_bookings', JSON.stringify(allBookings));
-            renderBookings();
-            await setupAdminPage();
-            alert('Cancellation approved and refund processed.');
-        } catch (err) {
-            console.error('approveCancellation error', err);
-            alert('Unable to approve cancellation: ' + (err.message || err));
-        }
-}
-
-// Admin: deny a pending cancellation request
-function denyCancellation(bookingId) {
-    if (!confirm('Deny cancellation request for booking ' + bookingId + '?')) return;
-    (async () => {
-        try {
-            const base = await getPaymentsServer();
-            console.log('denyCancellation base:', base || '(relative)');
-            const resp = await fetch((base ? base : '') + `/api/bookings/${encodeURIComponent(bookingId)}/deny-cancellation`, { method: 'POST' });
-            const data = await resp.json().catch(() => null);
-            if (!resp.ok) throw new Error(data?.error || 'Deny failed');
-
-            const allBookings = JSON.parse(localStorage.getItem('nh_bookings') || '[]');
-            const idx = allBookings.findIndex(b => String(b.id) === String(bookingId));
-            if (idx >= 0) allBookings[idx] = data.booking;
-            localStorage.setItem('nh_bookings', JSON.stringify(allBookings));
-            renderBookings();
-            setupAdminPage();
-            alert('Cancellation request denied.');
-        } catch (err) {
-            console.error('denyCancellation error', err);
-            alert('Unable to deny cancellation: ' + (err.message || err));
-        }
-    })();
-}
-
-// Update property monthly rate (admin)
-async function updatePropertyRate(propertyId) {
-    const input = document.getElementById(`prop-rate-${propertyId}`);
-    const statusEl = document.getElementById(`prop-status-${propertyId}`);
-    const saveBtn = document.querySelector(`button[onclick="updatePropertyRate('${propertyId}')"]`);
-    if (!input) return showPerPropertyStatus(propertyId, 'Rate input not found', 'error');
-    const value = Number(input.value);
-    if (isNaN(value) || value <= 0) return showPerPropertyStatus(propertyId, 'Enter a valid monthly rate', 'error');
-
+// ============================================
+// AUTH (LOGIN / SIGNUP) - simple client-side
+// ============================================
+function getSession() {
     try {
-        if (saveBtn) saveBtn.disabled = true;
-        showPerPropertyStatus(propertyId, 'Saving...', 'info');
-        const base = await getPaymentsServer();
-        const resp = await fetch((base ? base : '') + `/api/properties/${encodeURIComponent(propertyId)}`, {
-            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rate_per_month: value })
-        });
-        const data = await resp.json().catch(() => null);
-        if (!resp.ok) throw new Error(data?.error || 'Update failed');
-        showPerPropertyStatus(propertyId, 'Saved', 'success');
-        // refresh admin page content to reflect new values
-        await setupAdminPage();
-    } catch (err) {
-        console.error('updatePropertyRate error', err);
-        showPerPropertyStatus(propertyId, 'Unable to update: ' + (err.message || err), 'error');
-    } finally {
-        if (saveBtn) saveBtn.disabled = false;
+        return JSON.parse(localStorage.getItem('nh_session') || 'null');
+    } catch {
+        return null;
     }
 }
 
-function showAdminPropertyMessage(text, type) {
-    const el = document.getElementById('property-message');
-    if (!el) return alert(text);
-    el.style.display = 'block';
-    el.textContent = text;
-    el.className = `form-message ${type || ''}`;
-    if (type === 'success') setTimeout(() => { el.style.display = 'none'; }, 2500);
+function clearSession() {
+    localStorage.removeItem('nh_session');
 }
 
-function showPerPropertyStatus(propertyId, text, type) {
-    const el = document.getElementById(`prop-status-${propertyId}`);
-    if (!el) return showAdminPropertyMessage(text, type);
-    el.textContent = text;
-    el.className = `prop-status ${type || 'info'}`;
-    if (type === 'success') setTimeout(() => { el.textContent = ''; el.className = 'prop-status'; }, 2200);
-}
+document.addEventListener('DOMContentLoaded', async () => {
+    toggleMobileMenu();
+    setupPriceFilter();
+    setupFilterButtons();
+    setupContactForm();
+    setupBookingForm();
+    setupSmoothScroll();
+    setupPropertyDetails();
+    observeElements();
+    setupAuthNav();
+    setupAuthForms();
+    setupAccountPage();
+    setupPaymentForm();
+    setupReservationsPage();
+    await setupAdminPage();
 
-// ============================================
-// PAYMENT FORM (demo client-side)
-// ============================================
-function setupPaymentForm() {
-    const form = document.getElementById('payment-form');
-    const msg = document.getElementById('payment-message');
-    if (!form) return;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const amountInput = document.getElementById('pay-amount');
-    const amountParam = urlParams.get('amount');
-    const extensionId = urlParams.get('extension_id');
-    const pendingExtension = extensionId ? getPendingExtension() : null;
-    const pendingBooking = extensionId ? null : JSON.parse(localStorage.getItem('nh_pending_booking') || 'null');
-
-    console.log('[Payments] setupPaymentForm params:', { amountParam, extensionId, pendingExtension, pendingBooking });
-
-    if (amountInput) {
-        if (amountParam && !Number.isNaN(Number(amountParam))) {
-            amountInput.value = Number(amountParam);
-            amountInput.readOnly = true;
-            amountInput.dataset.currency = 'USD';
-        } else if (pendingBooking && pendingBooking.amount) {
-            amountInput.value = Number(pendingBooking.amount);
-            amountInput.readOnly = true;
-            amountInput.dataset.currency = 'USD';
-            const paymentDetails = document.getElementById('payment-details');
-            if (paymentDetails) {
-                paymentDetails.textContent = `Pending reservation for ${pendingBooking.property}. Pay now to confirm.`;
-            }
-        }
-    }
-
-    const amountLabel = document.getElementById('pay-amount-label');
-    if (amountLabel && extensionId) {
-        amountLabel.textContent = 'Amount (USD) - Extension fee';
-    }
-
-    if (pendingExtension) {
-        const paymentDetails = document.getElementById('payment-details');
-        if (paymentDetails) {
-            paymentDetails.textContent = `Extension payment for booking ${pendingExtension.bookingId}.`;
-        }
-    } else if (pendingBooking) {
-        const paymentDetails = document.getElementById('payment-details');
-        if (paymentDetails) {
-            paymentDetails.textContent = `Reservation payment pending for ${pendingBooking.property}. Complete checkout to confirm.`;
-        }
-    }
-
-    function show(type, text) {
-        msg.textContent = text;
-        msg.className = `form-message ${type}`;
-    }
-
-    const methodSelect = document.getElementById('pay-method');
-    const mpesaField = document.getElementById('mpesa-field');
-    const cardFields = document.getElementById('card-fields');
-    const amountField = document.getElementById('amount-field');
-    const mpesaInput = document.getElementById('pay-mpesa-phone');
-    const paymentDetails = document.getElementById('payment-details');
-    const cardInputs = cardFields ? cardFields.querySelectorAll('input') : [];
-    const panel = document.querySelector('.payment-history-panel');
-    const toggleBtn = document.getElementById('toggle-payments-visibility');
-    const historyNote = document.getElementById('payments-history-note');
-    const searchInput = document.getElementById('payments-search');
-    const visibilityKey = 'nh_payments_visible';
-    const session = getSession();
-    const MPESA_EXCHANGE_RATE = 150; // 1 USD = 150 KES
-
-    function isHistoryVisible() {
-        return localStorage.getItem(visibilityKey) !== 'false';
-    }
-
-    function convertUsdToKes(value) {
-        return Math.round(Number(value) * MPESA_EXCHANGE_RATE);
-    }
-
-    function convertKesToUsd(value) {
-        return Number((Number(value) / MPESA_EXCHANGE_RATE).toFixed(2));
-    }
-
-    function updateHistoryPanelVisibility() {
-        const loggedIn = Boolean(session);
-        const visible = loggedIn && isHistoryVisible();
-
-        if (panel) {
-            panel.style.display = visible ? 'block' : 'none';
-        }
-
-        if (toggleBtn) {
-            toggleBtn.style.display = loggedIn ? 'inline-flex' : 'none';
-            toggleBtn.textContent = visible ? 'Hide History' : 'Show History';
-        }
-
-        if (historyNote) {
-            if (!loggedIn) {
-                historyNote.style.display = 'block';
-                historyNote.textContent = 'Please sign in to view your payment history.';
-            } else {
-                historyNote.style.display = 'none';
-                historyNote.textContent = '';
-            }
-        }
-    }
-
-    if (toggleBtn) {
-        toggleBtn.addEventListener('click', () => {
-            const newValue = !isHistoryVisible();
-            localStorage.setItem(visibilityKey, String(newValue));
-            updateHistoryPanelVisibility();
-            if (newValue) renderPaymentHistory();
-        });
-    }
-
-    if (searchInput) {
-        searchInput.addEventListener('input', () => {
-            renderPaymentHistory();
-        });
-    }
-
-    updateHistoryPanelVisibility();
-
-    function ownerPaymentRecord(record) {
-        return {
-            ...record,
-            userEmail: session?.email || null
-        };
-    }
-
-    function showDetails(text) {
-        if (paymentDetails) paymentDetails.textContent = text || '';
-    }
-
-    function updatePaymentMethodFields() {
-        const method = methodSelect?.value || 'card';
-        if (mpesaField) mpesaField.style.display = method === 'mpesa' ? 'block' : 'none';
-        if (cardFields) cardFields.style.display = method === 'mpesa' ? 'none' : 'block';
-        cardInputs.forEach(input => { input.disabled = method === 'mpesa'; });
-        if (mpesaInput) mpesaInput.disabled = method !== 'mpesa';
-        if (amountField) amountField.style.display = 'block';
-
-        if (amountInput) {
-            const currentCurrency = amountInput.dataset.currency || 'USD';
-            const currentValue = Number(amountInput.value) || 0;
-            if (method === 'mpesa' && currentCurrency === 'USD' && currentValue > 0) {
-                amountInput.dataset.usdValue = String(currentValue);
-                amountInput.value = convertUsdToKes(currentValue);
-                amountInput.dataset.currency = 'KES';
-            }
-            if (method !== 'mpesa' && currentCurrency === 'KES' && currentValue > 0) {
-                if (amountInput.dataset.usdValue) {
-                    amountInput.value = amountInput.dataset.usdValue;
-                } else {
-                    amountInput.value = convertKesToUsd(currentValue);
-                }
-                amountInput.dataset.currency = 'USD';
-            }
-        }
-
-        const amountLabel = document.getElementById('pay-amount-label');
-        if (amountLabel) {
-            amountLabel.textContent = method === 'mpesa' ? 'Amount (KES)' : 'Amount (USD)';
-        }
-    }
-
-    if (methodSelect) {
-        methodSelect.addEventListener('change', updatePaymentMethodFields);
-    }
-    updatePaymentMethodFields();
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const method = methodSelect?.value || 'card';
-        const amount = Number(document.getElementById('pay-amount').value);
-
-        if (!amount || amount <= 0) {
-            show('error', 'Please enter a valid amount.');
-            return;
-        }
-
-        if (method === 'mpesa') {
-            const phone = mpesaInput?.value.trim();
-            if (!phone || !/^\+?\d{8,15}$/.test(phone)) {
-                show('error', 'Enter a valid M-Pesa phone number.');
-                return;
-            }
-
-            show('success', 'Processing M-Pesa payment...');
-            showDetails('');
-            try {
-                const base = await getPaymentsServer();
-                const payload = { amount, currency: 'KES', phone };
-                console.log('M-Pesa submit payload:', payload);
-                console.log('[Payments] M-Pesa request URL:', (base ? base : '') + '/create-mpesa-payment');
-                const resp = await fetch((base ? base : '') + '/create-mpesa-payment', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await resp.json().catch(() => null);
-                if (!resp.ok) {
-                    const msg = data?.error || data?.message || `${resp.status} ${resp.statusText}`;
-                    throw new Error(`HTTP ${resp.status}: ${msg}`);
-                }
-                if (data?.error) throw new Error(data.error);
-
-                const record = {
-                    id: data.transaction.id,
-                    provider: 'M-Pesa',
-                    last4: phone.slice(-4),
-                    amount,
-                    currency: 'KES',
-                    date: new Date().toISOString(),
-                    status: 'COMPLETED',
-                    description: `M-Pesa payment from ${phone}`
-                };
-                const saved = addPaymentRecord(record);
-                show('success', `M-Pesa STK push sent to ${phone}. ${data.transaction.note || ''}`);
-                showDetails(`Request ID: ${data.transaction.id} • Phone: ${phone}`);
-                form.reset();
-                updatePaymentMethodFields();
-                renderPaymentHistory();
-                finalizeBookingAfterPayment(saved);
-            } catch (err) {
-                console.error('M-Pesa payment error:', err);
-                const message = err?.message || 'Unknown error';
-                show('error', `M-Pesa payment failed: ${message}`);
-                showDetails(`Error: ${message}`);
-            }
-            return;
-        }
-
-        const name = document.getElementById('pay-name').value.trim();
-        const number = document.getElementById('pay-number').value.replace(/\s+/g, '');
-        const exp = document.getElementById('pay-exp').value.trim();
-        const cvv = document.getElementById('pay-cvv').value.trim();
-
-        if (!name || !number || !exp || !cvv) {
-            show('error', 'Please complete all payment fields.');
-            return;
-        }
-        if (!/^\d{12,19}$/.test(number)) { show('error', 'Enter a valid card number.'); return; }
-        if (!/^\d{2}\/\d{2}$/.test(exp)) { show('error', 'Expiry use MM/YY.'); return; }
-        if (!/^\d{3,4}$/.test(cvv)) { show('error', 'Enter a valid CVV.'); return; }
-
-        show('success', 'Processing payment...');
-            setTimeout(() => {
-            const record = { id: Date.now(), provider: 'Card', last4: number.slice(-4), amount, currency: 'USD', date: new Date().toISOString(), description: 'Card payment' };
-            const saved = addPaymentRecord(record);
-            show('success', `Payment of $${amount.toFixed(2)} successful. Receipt saved.`);
-            form.reset();
-            updatePaymentMethodFields();
-            renderPaymentHistory();
-            finalizeBookingAfterPayment(saved);
-        }, 900);
-    });
-}
-
-function renderPaymentHistory() {
-    const container = document.getElementById('payments-history');
-    if (!container) return;
-    const session = getSession();
-    if (!session) {
-        container.innerHTML = '<p style="color:#bbb">Sign in to see your own payment history.</p>';
-        return;
-    }
-
-    const payments = JSON.parse(localStorage.getItem('nh_payments') || '[]').filter(p => p.userEmail === session.email);
-    const searchTerm = (document.getElementById('payments-search')?.value || '').trim().toLowerCase();
-    const filteredPayments = searchTerm ? payments.filter(p => {
-        const id = String(p.id || '').toLowerCase();
-        const date = new Date(p.date || '').toLocaleString().toLowerCase();
-        const rawDate = String(p.date || '').toLowerCase();
-        return id.includes(searchTerm) || date.includes(searchTerm) || rawDate.includes(searchTerm);
-    }) : payments;
-
-    if (!filteredPayments.length) {
-        container.innerHTML = `<p style="color:#bbb">${payments.length ? `No matching payments found for "${searchTerm}".` : `No payments found for ${session.email}.`}</p>`;
-        return;
-    }
-
-    const rows = filteredPayments.slice().reverse().map(p => {
-        const date = new Date(p.date);
-        const currency = p.currency || 'USD';
-        return `
-            <div class="payment-item" style="padding:10px;border-radius:6px;background:#121212;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-                <div>
-                    <div style="font-weight:600;color:#fff">${formatCurrency(p.amount, currency)} <small style="color:#999">• ${p.provider || 'Card'} • **** ${p.last4}</small></div>
-                    <div style="color:#999;font-size:0.9rem">${date.toLocaleString()}</div>
-                </div>
-            </div>
-        `;
-    }).join('');
-
-    container.innerHTML = rows;
-}
-
-// ============================================
-// STRIPE + PAYPAL INTEGRATION (client-side)
-// Requires server endpoints at /create-checkout-session and /create-paypal-order
-// ============================================
-function setupStripeAndPayPal() {
-    // Stripe
-    const stripeBtn = document.getElementById('stripe-checkout');
-    if (stripeBtn) {
-        stripeBtn.addEventListener('click', async () => {
-            const amount = Number(document.getElementById('pay-amount').value) || 0;
-            if (!amount || amount <= 0) { alert('Enter a valid amount'); return; }
-            try {
-                const base = await getPaymentsServer();
-                const resp = await fetch((base ? base : '') + '/create-checkout-session', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ amount })
-                });
-                const data = await resp.json();
-                if (data.error) throw new Error(data.error);
-                const stripe = Stripe(window.STRIPE_PUBLISHABLE_KEY || (window.__STRIPE_PUBKEY__));
-                await stripe.redirectToCheckout({ sessionId: data.id });
-            } catch (err) {
-                console.error(err);
-                alert('Stripe checkout failed. See console for details.');
-            }
-        });
-    }
-
-    // PayPal
-    if (window.paypal) {
-        paypal.Buttons({
-            createOrder: async function() {
-                const amount = Number(document.getElementById('pay-amount').value) || 0;
-                if (!amount || amount <= 0) { alert('Enter a valid amount'); return; }
-                const base = await getPaymentsServer();
-                const res = await fetch((base ? base : '') + '/create-paypal-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount, currency: 'USD' }) });
-                const d = await res.json();
-                if (d.error) throw new Error(d.error);
-                return d.id;
-            },
-            onApprove: async function(data, actions) {
-                try {
-                    const capture = await actions.order.capture();
-                    const details = capture.purchase_units?.[0]?.payments?.captures?.[0];
-                    const amount = details?.amount?.value ? Number(details.amount.value) : Number(document.getElementById('pay-amount').value);
-                    const payerName = capture.payer?.name?.given_name || 'PayPal user';
-                    const record = {
-                        id: data.orderID,
-                        provider: 'PayPal',
-                        amount,
-                        currency: 'USD',
-                        last4: 'PayPal',
-                        date: new Date().toISOString(),
-                        status: details?.status || 'COMPLETED',
-                        description: `PayPal payment by ${payerName}`
-                    };
-                    const saved = addPaymentRecord(record);
-                    alert(`PayPal payment completed: ${formatCurrency(amount, 'USD')}`);
-                    renderPaymentHistory();
-                    finalizeBookingAfterPayment(saved);
-                } catch (err) {
-                    console.error(err);
-                    alert('PayPal capture failed.');
-                }
-            },
-            onCancel: function() {
-                alert('PayPal payment was canceled.');
-            },
-            onError: function(err) { console.error(err); alert('PayPal error'); }
-        }).render('#paypal-button-container');
-    }
-
-    const mpesaBtn = document.getElementById('mpesa-checkout');
-    if (mpesaBtn) {
-        mpesaBtn.addEventListener('click', async () => {
-            const methodSelect = document.getElementById('pay-method');
-            const mpesaPhone = document.getElementById('pay-mpesa-phone');
-            if (methodSelect) {
-                methodSelect.value = 'mpesa';
-                methodSelect.dispatchEvent(new Event('change'));
-            }
-            if (mpesaPhone) {
-                mpesaPhone.focus();
-            }
-
-            const amount = Number(document.getElementById('pay-amount').value) || 0;
-            const phone = mpesaPhone?.value.trim();
-            if (!amount || amount <= 0) { alert('Enter a valid amount'); return; }
-            if (!phone || !/^\+?\d{8,15}$/.test(phone)) { alert('Enter a valid M-Pesa phone number.'); return; }
-
-            try {
-                const base = await getPaymentsServer();
-                const payload = { amount, currency: 'KES', phone };
-                console.log('M-Pesa button payload:', payload);
-                console.log('[Payments] M-Pesa button request URL:', (base ? base : '') + '/create-mpesa-payment');
-                const resp = await fetch((base ? base : '') + '/create-mpesa-payment', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await resp.json().catch(() => null);
-                if (!resp.ok) {
-                    const msg = data?.error || data?.message || `${resp.status} ${resp.statusText}`;
-                    throw new Error(`HTTP ${resp.status}: ${msg}`);
-                }
-                if (data?.error) throw new Error(data.error);
-
-                const record = {
-                    id: data.transaction.id,
-                    provider: 'M-Pesa',
-                    amount,
-                    currency: 'KES',
-                    last4: phone.slice(-4),
-                    date: new Date().toISOString(),
-                    status: 'COMPLETED',
-                    description: `M-Pesa payment from ${phone}`
-                };
-                const saved = addPaymentRecord(record);
-                alert(`M-Pesa STK push sent to ${phone}. ${data.transaction.note || ''}`);
-                if (paymentDetails) paymentDetails.textContent = `Request ID: ${data.transaction.id} • Phone: ${phone}`;
-                renderPaymentHistory();
-                finalizeBookingAfterPayment(saved);
-            } catch (err) {
-                console.error('M-Pesa button error:', err);
-                const message = err?.message || 'Unknown error';
-                alert(`M-Pesa payment failed: ${message}`);
-                if (paymentDetails) paymentDetails.textContent = `Error: ${message}`;
-            }
-        });
-    }
-}
-
-
-// ============================================
-// ROOM SERVICE MANAGEMENT
-// ============================================
-
-let currentBookingForRoomService = null;
-
-async function openRoomServiceModal(bookingId) {
-    currentBookingForRoomService = bookingId;
-    const modal = document.getElementById('room-service-modal');
-    if (!modal) return;
-
-    // Load room service categories
+    // Load payment configuration from server and initialize SDKs
+    const base = window.PAYMENTS_SERVER;
     try {
-        const base = await getPaymentsServer();
-        const url = (base ? base : '') + '/api/room-service-categories';
-        const response = await fetch(url);
-        const categories = await response.json();
-
-        const container = document.getElementById('room-service-categories-container');
-        if (container) {
-            container.innerHTML = categories.map(cat => `
-                <div class="room-service-category">
-                    <h3>${cat.name}</h3>
-                    <div class="room-service-items">
-                        ${cat.items.map(item => `
-                            <div class="room-service-item">
-                                <div class="room-service-item-info">
-                                    <div class="room-service-item-name">${item.name}</div>
-                                    <div class="room-service-item-price">${item.price > 0 ? '$' + item.price : 'Free'}</div>
-                                </div>
-                                <button type="button" class="room-service-item-btn" onclick="requestRoomService('${cat.id}', '${item.id}', '${item.name}', ${item.price})">Request</button>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // Load room service history
-        await loadRoomServiceHistory(bookingId);
-    } catch (err) {
-        console.error('Error loading room service categories:', err);
-        alert('Failed to load room service options');
-    }
-
-    modal.style.display = 'block';
-}
-
-function closeRoomServiceModal() {
-    const modal = document.getElementById('room-service-modal');
-    if (modal) modal.style.display = 'none';
-    currentBookingForRoomService = null;
-}
-
-async function requestRoomService(categoryId, serviceId, serviceName, price) {
-    const session = getSession();
-    if (!session) {
-        alert('Please log in to request room service');
-        return;
-    }
-
-    if (!currentBookingForRoomService) {
-        alert('No booking selected');
-        return;
-    }
-
-    try {
-        const base = await getPaymentsServer();
-        const url = (base ? base : '') + '/api/room-service/request';
-        
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                bookingId: currentBookingForRoomService,
-                userEmail: session.email,
-                category: categoryId,
-                service: serviceId,
-                quantity: 1,
-                specialRequests: ''
-            })
-        });
-
-        const data = await response.json();
-        
-        if (!response.ok) {
-            alert(data.error || 'Failed to request room service');
-            return;
-        }
-
-        alert(`Room service requested: ${serviceName}${price > 0 ? ' (Cost: $' + price + ')' : ''}`);
-        
-        // Reload room service history
-        await loadRoomServiceHistory(currentBookingForRoomService);
-    } catch (err) {
-        console.error('Error requesting room service:', err);
-        alert('Failed to request room service');
-    }
-}
-
-async function loadRoomServiceHistory(bookingId) {
-    const session = getSession();
-    if (!session) return;
-
-    try {
-        const base = await getPaymentsServer();
-        const url = (base ? base : '') + `/api/room-service/booking/${bookingId}?userEmail=${encodeURIComponent(session.email)}`;
-        
-        const response = await fetch(url);
-        const services = await response.json();
-
-        const historyContainer = document.getElementById('room-service-list');
-        if (historyContainer) {
-            if (services.length === 0) {
-                historyContainer.innerHTML = '<p style="color:#999;font-size:0.9rem">No room service requests yet</p>';
-            } else {
-                historyContainer.innerHTML = services.map(service => {
-                    const requestedDate = new Date(service.requestedAt);
-                    const statusColor = service.status === 'completed' ? '#4CAF50' : 
-                                      service.status === 'cancelled' ? '#ff6b6b' : '#ff9800';
-                    
-                    return `
-                        <div class="room-service-request ${service.status}">
-                            <div style="display:flex;justify-content:space-between;align-items:center">
-                                <div>
-                                    <strong>${service.service}</strong> - 
-                                    <span style="color:${statusColor}">${service.status.toUpperCase()}</span>
-                                </div>
-                                <div style="text-align:right">
-                                    <div>$${service.price.toFixed(2)}</div>
-                                    <small style="color:#999">${requestedDate.toLocaleDateString()}</small>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
+        const cfgResp = await fetch(`${base}/config`);
+        if (cfgResp.ok) {
+            const cfg = await cfgResp.json();
+            if (cfg.stripePublishableKey) window.STRIPE_PUBLISHABLE_KEY = cfg.stripePublishableKey;
+            if (cfg.paypalClientId) {
+                try { await loadPayPalSdk(cfg.paypalClientId); } catch (e) { console.warn('PayPal SDK load failed', e); }
             }
+        } else {
+            console.warn('Could not fetch payment config');
         }
     } catch (err) {
-        console.error('Error loading room service history:', err);
+        console.warn('Error fetching payment config', err);
     }
-}
+
+    setupStripeAndPayPal();
+    await checkStripeCheckoutResult();
+    // Load properties into local cache for client-side pricing
+    loadPropertiesIntoCache();
+
+    console.log('Nyodera Heights website initialized successfully!');
+});
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -2550,10 +1590,17 @@ function getUrlParameter(name) {
     return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
 }
 
-// Log analytics (Example)
-function logEvent(eventName, eventData) {
-    console.log(`Event: ${eventName}`, eventData);
-    // Integration point for analytics
+// Placeholder functions for payment and admin functionality
+async function setupPaymentForm() {
+    console.log('Payment form setup - use backend at:', window.PAYMENTS_SERVER);
+}
+
+async function checkStripeCheckoutResult() {
+    console.log('Checking Stripe result');
+}
+
+function setupStripeAndPayPal() {
+    console.log('Stripe and PayPal setup - use backend at:', window.PAYMENTS_SERVER);
 }
 
 // Export functions for testing
@@ -2567,7 +1614,6 @@ if (typeof module !== 'undefined' && module.exports) {
         renderBookings,
         openExtendModal,
         closeExtendModal,
-        cancelBooking,
         handleExtendStay
     };
 }
