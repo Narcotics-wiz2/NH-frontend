@@ -781,6 +781,7 @@ function loadPayPalSdk(clientId) {
     });
 }
 
+const DEFAULT_PAYMENTS_SERVER = 'https://nyoderahomes-backend.onrender.com';
 let paymentsServerCache = null;
 let paymentsServerProbePromise = null;
 
@@ -795,7 +796,10 @@ function getPaymentsServerCandidates() {
     const origin = window.location.protocol === 'file:' ? '' : normalizeServerBase(window.location.origin || '');
     const pathname = window.location.pathname || '';
 
-    if (envServer) candidates.push(envServer);
+    if (envServer) {
+        candidates.push(envServer);
+    }
+    candidates.push(DEFAULT_PAYMENTS_SERVER);
     if (origin) {
         candidates.push(origin);
 
@@ -857,8 +861,8 @@ async function getPaymentsServer() {
                     return normalized;
                 }
             }
-            paymentsServerCache = normalizeServerBase(candidates[0] || '');
-            console.warn('[Payments] no valid server base found, falling back to:', paymentsServerCache || '(relative)');
+            paymentsServerCache = normalizeServerBase(DEFAULT_PAYMENTS_SERVER);
+            console.warn('[Payments] no valid server base found from probes, falling back to default:', paymentsServerCache);
             return paymentsServerCache;
         })();
     }
