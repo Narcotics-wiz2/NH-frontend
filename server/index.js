@@ -113,11 +113,9 @@ function ensureDefaultAdminUser() {
 
 ensureDefaultAdminUser();
 
-// Serve frontend static files from the project root so GET / serves index.html
-app.use(express.static(path.join(__dirname, '..')));
-
-// Fallback to index.html for single-page navigation
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'index.html')));
+// ⚠️ REMOVED: DO NOT serve static files from here
+// Frontend is served by GitHub Pages at https://nyoderahomes.github.io/NH/
+// Backend ONLY handles API requests
 
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -138,9 +136,6 @@ const DARAJA_STK_URL = 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/process
 const DARAJA_CALLBACK_URL = 'https://sandbox.safaricom.co.ke/mpesa/c2b/v1/simulate';
 
 async function getMailTransporter() {
-  // Prefer a generic Web API transport if configured. This supports providers
-  // that expose an HTTP send endpoint and accept a Bearer API key.
-  // Unione provider-specific adapter (if chosen)
   if (process.env.EMAIL_PROVIDER === 'unione' && process.env.EMAIL_API_KEY) {
     const unioneUrl = process.env.EMAIL_API_URL || 'https://api.unione.example/v1/messages';
     return {
@@ -172,8 +167,6 @@ async function getMailTransporter() {
   if (process.env.EMAIL_API_URL && process.env.EMAIL_API_KEY) {
     return {
       transporter: {
-        // Provide a compatible sendMail interface so existing code can call
-        // transporter.sendMail({ from, to, subject, text, html }) as before.
         sendMail: async (mailOptions) => {
           const payload = {
             from: mailOptions.from,
@@ -438,7 +431,6 @@ async function getMpesaAccessToken() {
 
 // Generate M-Pesa password
 function generateMpesaPassword() {
-  // Build timestamp in YYYYMMDDHHMMSS (no T or timezone) as expected by Daraja
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   const timestamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
@@ -449,7 +441,10 @@ function generateMpesaPassword() {
   return { password, timestamp };
 }
 
-
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Nyodera Heights API backend is running' });
+});
 
 app.post('/create-checkout-session', async (req, res) => {
   try {
@@ -572,7 +567,6 @@ app.post('/api/bookings', async (req, res) => {
     saveBookingsToFile(bookings);
     console.log('Booking saved:', booking.id, 'userEmail:', booking.userEmail, 'isNewBooking:', isNewBooking);
 
-    // Send booking confirmation email for new bookings
     if (isNewBooking) {
       const users = readUsersFromFile();
       const user = users.find(u => u.email === booking.userEmail);
@@ -604,7 +598,7 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-// Request cancellation (creates a pending cancellation)
+// Request cancellation
 app.post('/api/bookings/cancel-request', async (req, res) => {
   try {
     const { bookingId, refundRequested, requestedBy } = req.body || {};
@@ -646,7 +640,7 @@ app.post('/api/bookings/cancel-request', async (req, res) => {
   }
 });
 
-// Approve cancellation and (optionally) issue refund
+// Approve cancellation
 app.post('/api/bookings/:id/approve-cancellation', async (req, res) => {
   try {
     const id = req.params.id;
@@ -655,7 +649,6 @@ app.post('/api/bookings/:id/approve-cancellation', async (req, res) => {
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     if (!booking.cancellation || booking.status !== 'cancellation_pending') return res.status(400).json({ error: 'No pending cancellation' });
 
-    // perform refund if requested and payment info exists
     let refundResult = null;
     if (booking.cancellation.refundRequested && booking.paymentId && booking.paymentAmount) {
       try {
@@ -671,7 +664,6 @@ app.post('/api/bookings/:id/approve-cancellation', async (req, res) => {
         booking.refund = { amount: refundAmount, date: new Date().toISOString(), id: refundResult.refund?.id || `REF_${Date.now()}` };
       } catch (refundErr) {
         console.error('refund during approve-cancellation failed', refundErr.response?.data || refundErr.message || refundErr);
-        // continue and record local refund info
         booking.refund = { amount: booking.cancellation.refundAmount || null, date: new Date().toISOString(), id: `REF_${Date.now()}`, fallback: true };
       }
     }
@@ -731,9 +723,7 @@ app.post('/api/bookings/:id/deny-cancellation', (req, res) => {
   }
 });
 
-// ============== ROOM SERVICES ENDPOINTS ==============
-
-// Get room service categories
+// Room Service Endpoints
 app.get('/api/room-service-categories', (req, res) => {
   const categories = [
     {
@@ -778,7 +768,6 @@ app.get('/api/room-service-categories', (req, res) => {
   res.json(categories);
 });
 
-// Request room service
 app.post('/api/room-service/request', (req, res) => {
   try {
     const { bookingId, userEmail, category, service, quantity = 1, specialRequests = '' } = req.body;
@@ -787,7 +776,6 @@ app.post('/api/room-service/request', (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Verify booking exists and is confirmed
     const bookings = readBookingsFromFile();
     const booking = bookings.find(b => String(b.id) === String(bookingId) && b.userEmail === userEmail);
     
@@ -799,7 +787,6 @@ app.post('/api/room-service/request', (req, res) => {
       return res.status(400).json({ error: 'Room service only available for confirmed bookings' });
     }
 
-    // Find the service price
     const categories = [
       {
         id: 'food_beverage',
@@ -871,7 +858,6 @@ app.post('/api/room-service/request', (req, res) => {
   }
 });
 
-// Get room services for a booking
 app.get('/api/room-service/booking/:bookingId', (req, res) => {
   try {
     const { bookingId } = req.params;
@@ -881,7 +867,6 @@ app.get('/api/room-service/booking/:bookingId', (req, res) => {
       return res.status(400).json({ error: 'Missing bookingId or userEmail' });
     }
 
-    // Verify booking exists
     const bookings = readBookingsFromFile();
     const booking = bookings.find(b => String(b.id) === String(bookingId) && b.userEmail === userEmail);
     
@@ -899,7 +884,6 @@ app.get('/api/room-service/booking/:bookingId', (req, res) => {
   }
 });
 
-// Update room service status (admin only)
 app.patch('/api/room-service/:id/status', (req, res) => {
   try {
     const { id } = req.params;
@@ -929,7 +913,6 @@ app.patch('/api/room-service/:id/status', (req, res) => {
   }
 });
 
-// Cancel room service request
 app.post('/api/room-service/:id/cancel', (req, res) => {
   try {
     const { id } = req.params;
@@ -980,7 +963,6 @@ app.post('/api/auth/signup', async (req, res) => {
   res.json({ email: user.email, name: user.name, role: user.role, verified: false });
 });
 
-// Verify OTP
 app.post('/api/auth/verify-otp', (req, res) => {
   try {
     const { email, otp } = req.body || {};
@@ -1006,7 +988,6 @@ app.post('/api/auth/verify-otp', (req, res) => {
   }
 });
 
-// Resend OTP
 app.post('/api/auth/resend-otp', async (req, res) => {
   try {
     const { email } = req.body || {};
@@ -1016,7 +997,6 @@ app.post('/api/auth/resend-otp', async (req, res) => {
     const user = users.find(u => u.email === normalizedEmail);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.verified) return res.status(400).json({ error: 'User already verified' });
-    // enforce cooldown (60s)
     const now = Date.now();
     const cooldown = 60 * 1000;
     if (user.lastOtpSentAt && (now - Number(user.lastOtpSentAt) < cooldown)) {
@@ -1157,7 +1137,6 @@ app.post('/send-reset-email', async (req, res) => {
   }
 });
 
-// M-Pesa Integration Endpoint - Initiates STK Push
 app.post('/create-mpesa-payment', async (req, res) => {
   try {
     const { amount, phone } = req.body;
@@ -1165,7 +1144,6 @@ app.post('/create-mpesa-payment', async (req, res) => {
     if (!phone) return res.status(400).json({ error: 'Missing phone number' });
     if (!/^\+?\d{8,15}$/.test(phone)) return res.status(400).json({ error: 'Invalid phone number format' });
 
-    // Validate M-Pesa credentials are configured
     if (!process.env.MPESA_CONSUMER_KEY || !process.env.MPESA_CONSUMER_SECRET) {
       console.warn('M-Pesa credentials not configured - returning simulated response');
       const transactionId = `DEMO_${Date.now()}`;
@@ -1184,19 +1162,13 @@ app.post('/create-mpesa-payment', async (req, res) => {
     }
 
     try {
-      // Get access token
       const accessToken = await getMpesaAccessToken();
-
-      // Generate password and timestamp
       const { password, timestamp } = generateMpesaPassword();
-
-      // Format phone number (convert to 254xxxxxxxxx format if needed)
       let formattedPhone = phone.replace(/^0/, '254');
       if (!formattedPhone.startsWith('254')) {
         formattedPhone = formattedPhone.startsWith('+') ? formattedPhone.substring(1) : formattedPhone;
       }
 
-      // Initiate STK Push
       const stkPayload = {
         BusinessShortCode: process.env.MPESA_SHORTCODE,
         Password: password,
@@ -1211,7 +1183,6 @@ app.post('/create-mpesa-payment', async (req, res) => {
         TransactionDesc: 'Property Payment'
       };
 
-      // Log payload without exposing the password/passkey
       const safePayload = { ...stkPayload, Password: '***REDACTED***' };
       console.log('STK Push payload:', JSON.stringify(safePayload));
 
@@ -1235,7 +1206,6 @@ app.post('/create-mpesa-payment', async (req, res) => {
     } catch (apiErr) {
       console.error('STK Push error:', apiErr.response?.data || apiErr.message);
       
-      // Fallback to demo if API fails
       if (apiErr.response?.status === 401) {
         return res.status(400).json({
           error: 'M-Pesa credentials invalid or expired',
@@ -1250,13 +1220,11 @@ app.post('/create-mpesa-payment', async (req, res) => {
   }
 });
 
-// M-Pesa Callback Handler (for payment notifications)
 app.post('/mpesa-callback', (req, res) => {
   try {
     const body = req.body;
     console.log('M-Pesa Callback:', JSON.stringify(body, null, 2));
 
-    // Store callback in memory (in production, save to database)
     const isSuccess = body.Body?.stkCallback?.ResultCode === 0;
     
     if (isSuccess) {
@@ -1277,11 +1245,6 @@ app.post('/mpesa-callback', (req, res) => {
   }
 });
 
-
-const PORT = process.env.PORT || 4242;
-app.listen(PORT, () => console.log(`Payments server listening on ${PORT}`));
-
-// Refund endpoint - supports Stripe and PayPal (capture refunds)
 app.post('/refund', async (req, res) => {
   try {
     const { provider, paymentId, amount, currency, captureId } = req.body;
@@ -1290,13 +1253,11 @@ app.post('/refund', async (req, res) => {
     if (provider.toLowerCase() === 'stripe') {
       if (!process.env.STRIPE_SECRET_KEY) return res.status(400).json({ error: 'Stripe not configured' });
 
-      // Try retrieving checkout session to obtain payment_intent if needed
       let paymentIntentId = null;
       try {
         const session = await stripe.checkout.sessions.retrieve(paymentId);
         paymentIntentId = session.payment_intent || null;
       } catch (e) {
-        // Not a checkout session or retrieval failed; assume paymentId might already be a payment_intent or charge
         paymentIntentId = paymentId;
       }
 
@@ -1309,7 +1270,6 @@ app.post('/refund', async (req, res) => {
     }
 
     if (provider.toLowerCase() === 'paypal') {
-      // For PayPal we need a capture id. Accept captureId in body or attempt to use paymentId as capture id.
       const cid = captureId || paymentId;
       if (!cid) return res.status(400).json({ error: 'Missing PayPal capture id' });
       try {
@@ -1332,3 +1292,11 @@ app.post('/refund', async (req, res) => {
     res.status(500).json({ error: 'Refund failed', details: err.message });
   }
 });
+
+// Catch-all: 404 for undefined routes
+app.use((req, res) => {
+  res.status(404).json({ error: 'API endpoint not found', path: req.path, method: req.method });
+});
+
+const PORT = process.env.PORT || 4242;
+app.listen(PORT, () => console.log(`Nyodera Heights API backend listening on port ${PORT}`));
