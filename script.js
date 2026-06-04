@@ -569,7 +569,7 @@ function loadPropertyDetails(id) {
             bedrooms: 1,
             bathrooms: 1,
             sqft: '550 sq ft',
-            description: 'Experience luxury living in this beautifully furnished studio apartment. Located in the heart of the downtown district, this property offers the perfect blend of comfort[...]
+            description: 'Experience luxury living in this beautifully furnished studio apartment. Located in the heart of the downtown district, this property offers the perfect blend of comfort and convenience.'
         },
         2: {
             title: 'Elegant One Bedroom',
@@ -730,7 +730,12 @@ async function apiRequest(path, options = {}) {
     }
 
     if (!response.ok) {
-        throw new Error(data.error || response.statusText || 'Request failed');
+        const error = new Error(data.error || data.message || response.statusText || 'Request failed');
+        // Attach additional properties for error handling
+        error.verified = data.verified;
+        error.requiresVerification = data.requiresVerification;
+        error.code = data.code;
+        throw error;
     }
 
     return data;
@@ -1403,16 +1408,32 @@ function setupAuthForms() {
 
             try {
                 const user = await loginUser(email, pass);
+                
+                // Ensure we have required user properties
+                if (!user.email || !user.name) {
+                    throw new Error('Invalid server response: missing user email or name');
+                }
+                
+                // Store session with all available properties
+                const sessionData = {
+                    email: user.email,
+                    name: user.name,
+                    role: user.role || 'user',
+                    verified: user.verified || false
+                };
+                localStorage.setItem('nh_session', JSON.stringify(sessionData));
+                
                 msg.textContent = `Welcome back, ${user.name}! Redirecting to the home page...`;
                 msg.className = 'form-message success';
-                localStorage.setItem('nh_session', JSON.stringify({ email: user.email, name: user.name, role: user.role || 'user' }));
                 setTimeout(() => { window.location.href = 'index.html'; }, 900);
             } catch (err) {
-                const text = err.message || 'Login failed';
-                msg.textContent = text;
+                const errorText = err.message || 'Login failed';
+                msg.textContent = errorText;
                 msg.className = 'form-message error';
-                // if login failed due to unverified email, show inline resend control
-                if (text.toLowerCase().includes('not verified')) {
+                
+                // Check if the error is due to unverified email
+                const isNotVerified = err.requiresVerification || errorText.toLowerCase().includes('not verified') || errorText.toLowerCase().includes('verify');
+                if (isNotVerified) {
                     showLoginResend(email);
                 }
             }
@@ -1462,7 +1483,16 @@ function setupAuthForms() {
 
                 try {
                     const res = await apiRequest('/api/auth/verify-otp', { method: 'POST', body: { email, otp: code } });
-                    localStorage.setItem('nh_session', JSON.stringify({ email: res.email, name: res.name, role: res.role || 'user' }));
+                    
+                    // Store the verified session
+                    const sessionData = {
+                        email: res.email,
+                        name: res.name,
+                        role: res.role || 'user',
+                        verified: true
+                    };
+                    localStorage.setItem('nh_session', JSON.stringify(sessionData));
+                    
                     msgSpan.textContent = 'Verified! Redirecting...';
                     msgSpan.className = 'form-message success';
                     setTimeout(() => window.location.href = 'index.html', 900);
