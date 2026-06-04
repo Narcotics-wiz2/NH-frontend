@@ -3,7 +3,7 @@
 // ============================================
 
 // Auto-configured backend server for API calls
-window.PAYMENTS_SERVER = 'https://nh-backend-1-6scr.onrender.com';
+window.PAYMENTS_SERVER = 'https://nh-backend-2-4goq.onrender.com';
 
 // ============================================
 // DOM Elements
