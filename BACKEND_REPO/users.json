@@ -1,0 +1,9 @@
+[
+  {
+    "name": "Admin User",
+    "email": "admin@nh.test",
+    "password": "Admin123!",
+    "role": "admin",
+    "verified": true
+  }
+]

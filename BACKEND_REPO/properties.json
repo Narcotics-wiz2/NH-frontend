@@ -1,0 +1,56 @@
+[
+  {
+    "id": "1",
+    "title": "Luxury Studio Apartment",
+    "rate_per_month": 2500,
+    "location": "Downtown District",
+    "bedrooms": 1,
+    "bathrooms": 1,
+    "sqft": "550 sq ft"
+  },
+  {
+    "id": "2",
+    "title": "Elegant One Bedroom",
+    "rate_per_month": 3200,
+    "location": "Midtown Elegance",
+    "bedrooms": 1,
+    "bathrooms": 1,
+    "sqft": "750 sq ft"
+  },
+  {
+    "id": "3",
+    "title": "Premium Two Bedroom",
+    "rate_per_month": 4500,
+    "location": "Highrise Avenue",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "sqft": "1000 sq ft"
+  },
+  {
+    "id": "4",
+    "title": "Luxury Two Bedroom Penthouse",
+    "rate_per_month": 5800,
+    "location": "Waterfront Plaza",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "sqft": "1200 sq ft"
+  },
+  {
+    "id": "5",
+    "title": "Spacious Three Bedroom",
+    "rate_per_month": 6500,
+    "location": "Uptown Heights",
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "sqft": "1400 sq ft"
+  },
+  {
+    "id": "6",
+    "title": "Modern Studio with Balcony",
+    "rate_per_month": 2800,
+    "location": "Downtown District",
+    "bedrooms": 1,
+    "bathrooms": 1,
+    "sqft": "550 sq ft"
+  }
+]
