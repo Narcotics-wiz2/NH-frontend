@@ -446,6 +446,15 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Nyodera Heights API backend is running' });
 });
 
+// Root endpoint for browser/URL checks
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Nyodera Heights API backend is running. Use /config or /api endpoints for requests.',
+    availableEndpoints: ['/health', '/config', '/api/auth/login', '/api/properties', '/api/bookings']
+  });
+});
+
 app.post('/create-checkout-session', async (req, res) => {
   try {
     const { amount, currency = 'usd' } = req.body;

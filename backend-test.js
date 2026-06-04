@@ -1,6 +1,6 @@
 // Test endpoint for debugging backend connectivity
 window.testBackend = async function() {
-    const backendURL = 'https://nyoderahomes-backend.onrender.com';
+    const backendURL = 'https://nh-backend-1-6scr.onrender.com';
     
     console.log('Testing backend at:', backendURL);
     
@@ -43,7 +43,7 @@ testBackend().then(success => {
         console.log('\n✅ All systems operational!');
     } else {
         console.log('\n❌ Backend connection failed. Check the following:');
-        console.log('1. Visit https://nyoderahomes-backend.onrender.com/config in your browser');
+        console.log('1. Visit https://nh-backend-1-6scr.onrender.com/config in your browser');
         console.log('2. Check Render logs: https://dashboard.render.com');
         console.log('3. Verify environment variables are set in Render');
     }

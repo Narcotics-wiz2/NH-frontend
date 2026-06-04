@@ -3,7 +3,7 @@
 // ============================================
 
 // Auto-configured backend server for API calls
-window.PAYMENTS_SERVER = 'https://nyoderahomes-backend.onrender.com';
+window.PAYMENTS_SERVER = 'https://nh-backend-1-6scr.onrender.com';
 
 // ============================================
 // DOM Elements
