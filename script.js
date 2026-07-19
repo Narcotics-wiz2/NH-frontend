@@ -6,6 +6,18 @@
 window.PAYMENTS_SERVER = 'http://127.0.0.1:25005';
 window.PAYMENTS_LOGIN_PATH = '/api/auth/login';
 
+function getBackendBaseCandidates() {
+    const explicit = [window.PAYMENTS_SERVER, 'http://localhost:25005', 'http://127.0.0.1:25005'];
+    const seen = new Set();
+    return explicit.filter((entry) => {
+        if (!entry) return false;
+        const normalized = entry.replace(/\/$/, '');
+        if (seen.has(normalized)) return false;
+        seen.add(normalized);
+        return true;
+    });
+}
+
 // ============================================
 // DOM Elements
 // ============================================
@@ -708,10 +720,7 @@ function loadPayPalSdk(clientId) {
 }
 
 async function apiRequest(path, options = {}) {
-    const base = window.PAYMENTS_SERVER;
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    const url = `${base}${cleanPath}`;
-
     const fetchOptions = {
         method: options.method || 'GET',
         headers: {
@@ -721,25 +730,38 @@ async function apiRequest(path, options = {}) {
         body: options.body ? JSON.stringify(options.body) : undefined,
     };
 
-    const response = await fetch(url, fetchOptions);
-    const text = await response.text();
-    let data;
-    try {
-        data = text ? JSON.parse(text) : {};
-    } catch {
-        data = { error: text };
+    let lastError;
+    for (const base of getBackendBaseCandidates()) {
+        const url = `${base}${cleanPath}`;
+        try {
+            const response = await fetch(url, fetchOptions);
+            const text = await response.text();
+            let data;
+            try {
+                data = text ? JSON.parse(text) : {};
+            } catch {
+                data = { error: text };
+            }
+
+            if (!response.ok) {
+                const error = new Error(data.error || data.message || response.statusText || 'Request failed');
+                error.verified = data.verified;
+                error.requiresVerification = data.requiresVerification;
+                error.code = data.code;
+                throw error;
+            }
+
+            return data;
+        } catch (err) {
+            lastError = err;
+            if (err.name === 'TypeError' && /fetch/i.test(err.message)) {
+                continue;
+            }
+            throw err;
+        }
     }
 
-    if (!response.ok) {
-        const error = new Error(data.error || data.message || response.statusText || 'Request failed');
-        // Attach additional properties for error handling
-        error.verified = data.verified;
-        error.requiresVerification = data.requiresVerification;
-        error.code = data.code;
-        throw error;
-    }
-
-    return data;
+    throw lastError || new Error('Request failed');
 }
 
 async function fetchUsersFromServer() {
