@@ -3,7 +3,8 @@
 // ============================================
 
 // Auto-configured backend server for API calls
-window.PAYMENTS_SERVER = 'https://nh-backend-2-4goq.onrender.com';
+window.PAYMENTS_SERVER = 'http://127.0.0.1:25005';
+window.PAYMENTS_LOGIN_PATH = '/api/auth/login';
 
 // ============================================
 // DOM Elements
@@ -750,7 +751,8 @@ async function signupUser(name, email, password) {
 }
 
 async function loginUser(email, password) {
-    return apiRequest('/api/auth/login', { method: 'POST', body: { email, password } });
+    const loginPath = window.PAYMENTS_LOGIN_PATH || '/api/auth/login';
+    return apiRequest(loginPath, { method: 'POST', body: { email, password } });
 }
 
 async function changeUserPassword(email, currentPassword, newPassword) {
